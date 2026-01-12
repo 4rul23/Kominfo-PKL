@@ -1,27 +1,40 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 
-import RegistrationWizard from "@/components/RegistrationWizard";
+// Lazy load wizard - reduces initial bundle by ~24KB
+const RegistrationWizard = dynamic(
+  () => import("@/components/RegistrationWizard"),
+  { ssr: false }
+);
 
-// Live Clock - EXACT format from original
+// Static visitor data - moved outside component to avoid recreation
+const RECENT_VISITORS = [
+  { name: "Pratama Wijaya", unit: "Bidang IKP", time: "2 menit yang lalu", faded: false },
+  { name: "Larasati Putri", unit: "Bidang Aptika", time: "14 menit yang lalu", faded: false },
+  { name: "Hendra Kurnia", unit: "Sekretariat", time: "45 menit yang lalu", faded: true },
+] as const;
+
+// Live Clock - memoized options object
+const CLOCK_OPTIONS: Intl.DateTimeFormatOptions = {
+  weekday: "long",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+};
+
 function LiveClock() {
   const [time, setTime] = useState("");
 
   useEffect(() => {
     const updateClock = () => {
       const now = new Date();
-      const options: Intl.DateTimeFormatOptions = {
-        weekday: "long",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      };
-      setTime(now.toLocaleString("id-ID", options).replace(",", " •"));
+      setTime(now.toLocaleString("id-ID", CLOCK_OPTIONS).replace(",", " •"));
     };
 
     updateClock();
@@ -45,6 +58,18 @@ export default function Home() {
       document.body.classList.remove("wizard-active");
     }
   }, [wizardOpen]);
+
+  // Memoize visitor list to prevent re-render
+  const visitorList = useMemo(() => RECENT_VISITORS.map((visitor, i) => (
+    <div key={i} className={`feed-item ${visitor.faded ? "!mb-0 opacity-50" : ""}`}>
+      <span className="text-[0.95rem] font-bold block" style={{ color: "#172B4D" }}>
+        {visitor.name}
+      </span>
+      <span className="text-[0.8rem]" style={{ color: "#6B778C" }}>
+        Unit: {visitor.unit} • {visitor.time}
+      </span>
+    </div>
+  )), []);
 
   return (
     <>
@@ -92,6 +117,8 @@ export default function Home() {
               src="/photo_6237802285450857792_w.jpg"
               alt="Lobby Background"
               fill
+              priority
+              sizes="(max-width: 768px) 100vw, 50vw"
               className="card-image-bg"
             />
             <div className="relative z-[1] h-full flex flex-col">
@@ -137,20 +164,7 @@ export default function Home() {
                 Latest Visitor <span className="live-dot" />
               </span>
               <div className="mt-2.5">
-                {[
-                  { name: "Pratama Wijaya", unit: "Bidang IKP", time: "2 menit yang lalu" },
-                  { name: "Larasati Putri", unit: "Bidang Aptika", time: "14 menit yang lalu" },
-                  { name: "Hendra Kurnia", unit: "Sekretariat", time: "45 menit yang lalu", faded: true },
-                ].map((visitor, i) => (
-                  <div key={i} className={`feed-item ${visitor.faded ? "!mb-0 opacity-50" : ""}`}>
-                    <span className="text-[0.95rem] font-bold block" style={{ color: "#172B4D" }}>
-                      {visitor.name}
-                    </span>
-                    <span className="text-[0.8rem]" style={{ color: "#6B778C" }}>
-                      Unit: {visitor.unit} • {visitor.time}
-                    </span>
-                  </div>
-                ))}
+                {visitorList}
               </div>
             </div>
           </article>

@@ -70,6 +70,8 @@ body {
   border-radius: 50%;
   filter: blur(80px);
   animation: float 25s infinite ease-in-out;
+  will-change: transform;
+  contain: layout style;
 }
 
 .blob-1 {
@@ -217,6 +219,8 @@ body {
   flex-direction: column;
   position: relative;
   overflow: hidden;
+  contain: layout style paint;
+  will-change: transform, box-shadow;
 }
 
 .bento-card:hover {
@@ -408,6 +412,8 @@ body {
   transition: all 0.8s var(--ease-expo);
   text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.7);
+  will-change: transform, opacity;
+  contain: layout style;
 }
 
 .wizard-card.active {
@@ -654,6 +660,8 @@ body.wizard-active .blob {
   transform: translate(-50%, -50%) scale(8) !important;
   opacity: 0.3;
   transition: all 1.8s cubic-bezier(0.8, 0, 0.2, 1);
+  /* Pause animation to reduce GPU usage when wizard is open */
+  animation-play-state: paused;
 }
 
 body.wizard-active #app {
@@ -662,6 +670,16 @@ body.wizard-active #app {
   transform: scale(0.95);
   filter: blur(10px);
   pointer-events: none;
+}
+
+/* Pause all background animations when wizard is active for memory savings */
+body.wizard-active .bento-card,
+body.wizard-active .ecosystem-card {
+  animation-play-state: paused !important;
+}
+
+body.wizard-active .bento-card * {
+  animation-play-state: paused !important;
 }
 
 /* ========================================

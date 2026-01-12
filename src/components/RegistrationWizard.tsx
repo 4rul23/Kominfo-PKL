@@ -32,6 +32,7 @@ export default function RegistrationWizard({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const isDrawing = useRef(false);
+    const streamRef = useRef<MediaStream | null>(null); // Track stream in ref to avoid stale closure
 
     useEffect(() => {
         if (isOpen) {
@@ -39,10 +40,18 @@ export default function RegistrationWizard({
         }
     }, [step, isOpen]);
 
-    // Camera Logic
+    // Camera Logic - using ref to prevent memory leaks
     const startCamera = async () => {
+        // Stop any existing stream first
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+        }
+
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+            });
+            streamRef.current = stream;
             setCameraStream(stream);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
@@ -54,14 +63,21 @@ export default function RegistrationWizard({
     };
 
     const stopCamera = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
         if (cameraStream) {
             cameraStream.getTracks().forEach(track => track.stop());
-            setCameraStream(null);
+        }
+        setCameraStream(null);
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
         }
     };
 
     const takeSelfie = () => {
-        if (!videoRef.current || !cameraStream) return;
+        if (!videoRef.current || !streamRef.current) return;
 
         const canvas = document.createElement("canvas");
         canvas.width = videoRef.current.videoWidth;
@@ -73,7 +89,8 @@ export default function RegistrationWizard({
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-            setSelfie(canvas.toDataURL("image/jpeg"));
+            // Compress image to reduce memory usage
+            setSelfie(canvas.toDataURL("image/jpeg", 0.75));
             stopCamera();
         }
     };
@@ -83,15 +100,22 @@ export default function RegistrationWizard({
         startCamera();
     };
 
-    // Initialize camera when entering step 5
+    // Initialize camera when entering step 5, cleanup on unmount
     useEffect(() => {
-        if (step === 5) {
+        if (step === 5 && !selfie) {
             startCamera();
-        } else {
+        } else if (step !== 5) {
             stopCamera();
         }
-        return () => stopCamera();
-    }, [step]);
+
+        // Cleanup on unmount or step change
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
+            }
+        };
+    }, [step, selfie]);
 
 
     // Canvas Logic
