@@ -81,7 +81,7 @@ export default function CameraCapture({ onCapture, onRetake, initialImage }: Cam
                             onClick={takeSelfie}
                             className="w-16 h-16 rounded-full bg-white border-4 border-gray-200/50 flex items-center justify-center hover:bg-gray-100 active:scale-95 transition-all"
                         >
-                            <div className="w-12 h-12 rounded-full bg-[#D32F2F] border-2 border-white" />
+                            <div className="w-12 h-12 rounded-full bg-[#d02b29] border-2 border-white" />
                         </button>
                     </div>
                 </>

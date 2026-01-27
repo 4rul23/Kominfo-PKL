@@ -144,7 +144,7 @@ export default function RegistrationWizard({
     if (!isOpen) return null;
 
     const stepColors = [
-        { bg: "bg-red-50", text: "text-[#D32F2F]", border: "border-red-100", focus: "focus:border-[#D32F2F]" },
+        { bg: "bg-red-50", text: "text-[#d02b29]", border: "border-red-100", focus: "focus:border-[#d02b29]" },
         { bg: "bg-pink-50", text: "text-pink-600", border: "border-pink-100", focus: "focus:border-pink-500" },
         { bg: "bg-purple-50", text: "text-purple-600", border: "border-purple-100", focus: "focus:border-purple-500" },
         { bg: "bg-teal-50", text: "text-teal-600", border: "border-teal-100", focus: "focus:border-[#009FA9]" },
@@ -160,7 +160,7 @@ export default function RegistrationWizard({
         <div className="fixed inset-0 z-50 flex flex-col items-center transition-all duration-500 ease-out overflow-y-auto scrollbar-hide pb-12">
             <div className="absolute inset-0 bg-white/80 transition-all duration-500" />
             <div className="absolute inset-0 z-0 overflow-hidden opacity-30 pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-[#D32F2F]/5 rounded-full blur-[100px]" />
+                <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-[#d02b29]/5 rounded-full blur-[100px]" />
                 <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-[#009FA9]/10 rounded-full blur-[100px]" />
             </div>
 
@@ -172,7 +172,7 @@ export default function RegistrationWizard({
                     </div>
                     <span className="font-bold text-[#172B4D] tracking-tight text-lg">Buku Tamu</span>
                 </div>
-                <button onClick={onClose} className="group flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 border border-white/60 hover:bg-white hover:shadow-md transition-all text-[#505F79] hover:text-[#FF5630]">
+                <button onClick={onClose} className="group flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 border border-white/60 hover:bg-white hover:shadow-md transition-all text-[#505F79] hover:text-[#d02b29]">
                     <span className="text-xs font-bold tracking-wider uppercase">Tutup</span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M18 6L6 18M6 6l12 12" />
@@ -186,7 +186,7 @@ export default function RegistrationWizard({
                 {step <= TOTAL_STEPS && (
                     <div className="flex items-center gap-1.5 mb-12">
                         {Array.from({ length: TOTAL_STEPS }, (_, i) => (
-                            <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i + 1 === step ? "w-10 bg-[#D32F2F]" : i + 1 < step ? "w-3 bg-[#36B37E]" : "w-2 bg-gray-200"}`} />
+                            <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i + 1 === step ? "w-10 bg-[#d02b29]" : i + 1 < step ? "w-3 bg-[#36B37E]" : "w-2 bg-gray-200"}`} />
                         ))}
                     </div>
                 )}
@@ -348,7 +348,7 @@ export default function RegistrationWizard({
                         <button
                             onClick={step < TOTAL_STEPS ? handleNext : handleSubmit}
                             disabled={isSubmitting || (step === TOTAL_STEPS && !signature)}
-                            className={`group flex items-center justify-center gap-3 px-8 py-4 text-white rounded-2xl transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed ${step === TOTAL_STEPS ? "bg-[#D32F2F] shadow-[0_8px_30px_rgba(211,47,47,0.25)] hover:shadow-[0_15px_40px_rgba(211,47,47,0.35)]" : "bg-[#009FA9] shadow-[0_8px_30px_rgba(0,159,169,0.25)] hover:shadow-[0_15px_40px_rgba(0,159,169,0.35)]"} hover:-translate-y-1`}
+                            className={`group flex items-center justify-center gap-3 px-8 py-4 text-white rounded-2xl transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed ${step === TOTAL_STEPS ? "bg-[#d02b29] shadow-[0_8px_30px_rgba(211,47,47,0.25)] hover:shadow-[0_15px_40px_rgba(211,47,47,0.35)]" : "bg-[#009FA9] shadow-[0_8px_30px_rgba(0,159,169,0.25)] hover:shadow-[0_15px_40px_rgba(0,159,169,0.35)]"} hover:-translate-y-1`}
                         >
                             <span className="font-bold text-lg tracking-wide">
                                 {isSubmitting ? "Mengirim..." : step < TOTAL_STEPS ? "Lanjut" : "Simpan Data"}

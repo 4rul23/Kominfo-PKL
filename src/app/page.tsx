@@ -72,7 +72,7 @@ export default function Home() {
             </div>
             <div className="flex gap-8 items-center text-right">
               <div className="flex flex-col gap-1 min-w-[140px]">
-                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#D32F2F" }}>
+                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#d02b29" }}>
                   Lokasi
                 </span>
                 <p className="text-lg font-semibold whitespace-nowrap" style={{ color: "#172B4D" }}>
@@ -81,7 +81,7 @@ export default function Home() {
               </div>
               <div className="w-[1.5px] h-10" style={{ background: "rgba(211, 47, 47, 0.1)" }} />
               <div className="flex flex-col gap-1 min-w-[140px]">
-                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#D32F2F" }}>
+                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#d02b29" }}>
                   Current Time
                 </span>
                 <p className="text-lg font-semibold whitespace-nowrap" style={{ color: "#172B4D" }}>
@@ -115,9 +115,33 @@ export default function Home() {
                   Silakan lakukan registrasi kunjungan Anda. Sistem kami siap membantu Anda
                   mengakses berbagai layanan di lingkungan Diskominfo.
                 </p>
-                <Link href="/register" className="btn-primary inline-flex items-center justify-center">
-                  Masuk ke Portal Lobi
-                </Link>
+                <div className="flex flex-col gap-3 mt-auto">
+                  <div className="flex gap-3 flex-wrap">
+                    <Link href="/register" className="btn-primary !mt-0 inline-flex items-center justify-center">
+                      Masuk ke Portal Lobi
+                    </Link>
+                    <Link
+                      href="/surat"
+                      className="btn-secondary inline-flex items-center justify-center gap-2"
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                        <polyline points="22,6 12,13 2,6" />
+                      </svg>
+                      Kirim Surat Elektronik
+                    </Link>
+                  </div>
+                  <Link
+                    href="/surat/tracking"
+                    className="inline-flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors group"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70 group-hover:opacity-100 transition-opacity">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="m21 21-4.35-4.35" />
+                    </svg>
+                    Sudah kirim surat? <span className="underline underline-offset-2">Lacak status di sini →</span>
+                  </Link>
+                </div>
               </div>
             </article>
 
@@ -135,7 +159,7 @@ export default function Home() {
                 <div className="mt-auto flex gap-1 h-8 items-end">
                   <div className="flex-1 h-[40%] bg-[#e0eafc] rounded" />
                   <div className="flex-1 h-[60%] bg-[#e0eafc] rounded" />
-                  <div className="flex-1 h-[85%] rounded" style={{ background: "#D32F2F" }} />
+                  <div className="flex-1 h-[85%] rounded" style={{ background: "#d02b29" }} />
                   <div className="flex-1 h-[50%] bg-[#e0eafc] rounded" />
                   <div className="flex-1 h-[95%] rounded" style={{ background: "#009FA9" }} />
                 </div>
@@ -173,7 +197,7 @@ export default function Home() {
                 {/* Pattern Overlay */}
                 <div className="absolute inset-0 opacity-[0.2]"
                   style={{
-                    backgroundImage: "radial-gradient(#D32F2F 0.8px, transparent 0.8px)",
+                    backgroundImage: "radial-gradient(#d02b29 0.8px, transparent 0.8px)",
                     backgroundSize: "24px 24px",
                     backgroundPosition: "0 0"
                   }}
@@ -260,7 +284,7 @@ export default function Home() {
 
                     {/* Subtle Glows */}
                     <div className="absolute -inset-10 z-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700">
-                      <div className="absolute top-1/4 right-0 w-24 h-24 bg-[#FF5630]/20 rounded-full blur-2xl animate-pulse" />
+                      <div className="absolute top-1/4 right-0 w-24 h-24 bg-[#d02b29]/20 rounded-full blur-2xl animate-pulse" />
                       <div className="absolute bottom-0 left-10 w-32 h-32 bg-[#009FA9]/15 rounded-full blur-3xl animate-pulse" style={{ animationDelay: "1.5s" }} />
                     </div>
                   </div>
@@ -274,3 +298,4 @@ export default function Home() {
     </>
   );
 }
+

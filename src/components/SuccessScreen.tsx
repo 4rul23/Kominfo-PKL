@@ -93,7 +93,7 @@ export default function SuccessScreen({ visitorName, unit, photo, onClose }: Suc
                 {/* Bottom Red Accent Decor */}
                 <div className="h-2 w-full flex">
                     <div className="flex-[3] bg-[#009FA9]" />
-                    <div className="flex-1 bg-[#D32F2F]" />
+                    <div className="flex-1 bg-[#d02b29]" />
                 </div>
             </div>
 
