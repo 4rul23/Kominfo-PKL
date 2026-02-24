@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Space_Grotesk } from "next/font/google";
+import MobileUnsupportedOverlay from "@/components/MobileUnsupportedOverlay";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -29,6 +30,7 @@ export default function RootLayout({
         </div>
 
         {children}
+        <MobileUnsupportedOverlay />
       </body>
     </html>
   );
