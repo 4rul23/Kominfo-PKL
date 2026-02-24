@@ -72,7 +72,7 @@ export default function Home() {
             </div>
             <div className="flex gap-8 items-center text-right">
               <div className="flex flex-col gap-1 min-w-[140px]">
-                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#d02b29" }}>
+                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#991b1b" }}>
                   Lokasi
                 </span>
                 <p className="text-lg font-semibold whitespace-nowrap" style={{ color: "#172B4D" }}>
@@ -81,7 +81,7 @@ export default function Home() {
               </div>
               <div className="w-[1.5px] h-10" style={{ background: "rgba(211, 47, 47, 0.1)" }} />
               <div className="flex flex-col gap-1 min-w-[140px]">
-                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#d02b29" }}>
+                <span className="text-[0.8rem] font-extrabold uppercase tracking-[1.5px] opacity-70" style={{ color: "#991b1b" }}>
                   Current Time
                 </span>
                 <p className="text-lg font-semibold whitespace-nowrap" style={{ color: "#172B4D" }}>
@@ -159,7 +159,7 @@ export default function Home() {
                 <div className="mt-auto flex gap-1 h-8 items-end">
                   <div className="flex-1 h-[40%] bg-[#e0eafc] rounded" />
                   <div className="flex-1 h-[60%] bg-[#e0eafc] rounded" />
-                  <div className="flex-1 h-[85%] rounded" style={{ background: "#d02b29" }} />
+                  <div className="flex-1 h-[85%] rounded" style={{ background: "#991b1b" }} />
                   <div className="flex-1 h-[50%] bg-[#e0eafc] rounded" />
                   <div className="flex-1 h-[95%] rounded" style={{ background: "#009FA9" }} />
                 </div>
@@ -197,7 +197,7 @@ export default function Home() {
                 {/* Pattern Overlay */}
                 <div className="absolute inset-0 opacity-[0.2]"
                   style={{
-                    backgroundImage: "radial-gradient(#d02b29 0.8px, transparent 0.8px)",
+                    backgroundImage: "radial-gradient(#991b1b 0.8px, transparent 0.8px)",
                     backgroundSize: "24px 24px",
                     backgroundPosition: "0 0"
                   }}
@@ -274,7 +274,7 @@ export default function Home() {
                     }}
                   >
                     <Image
-                      src="/lontara.svg"
+                      src="/kominfos.svg"
                       alt="Logo Lontara"
                       width={130}
                       height={130}
@@ -284,7 +284,7 @@ export default function Home() {
 
                     {/* Subtle Glows */}
                     <div className="absolute -inset-10 z-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700">
-                      <div className="absolute top-1/4 right-0 w-24 h-24 bg-[#d02b29]/20 rounded-full blur-2xl animate-pulse" />
+                      <div className="absolute top-1/4 right-0 w-24 h-24 bg-[#991b1b]/20 rounded-full blur-2xl animate-pulse" />
                       <div className="absolute bottom-0 left-10 w-32 h-32 bg-[#009FA9]/15 rounded-full blur-3xl animate-pulse" style={{ animationDelay: "1.5s" }} />
                     </div>
                   </div>

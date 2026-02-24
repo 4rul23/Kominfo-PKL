@@ -5,17 +5,18 @@
    ======================================== */
 @theme inline {
   /* Exact colors from original */
-  --color-primary: #d02b29;
+  --color-primary: #991b1b;
   --color-primary-dark: #B71C1C;
   --color-secondary: #009FA9;
-  --color-accent: #d02b29;
+  --color-accent: #991b1b;
   --color-surface: #F4F5F7;
   --color-text-ink: #172B4D;
   --color-text-grey: #6B778C;
   --color-glass-bg: rgba(255, 255, 255, 0.85);
   --color-glass-border: rgba(255, 255, 255, 0.6);
 
-  --font-main: 'Space Grotesk', sans-serif;
+  /* Overridden by next/font in src/app/layout.tsx (variable: --font-main) */
+  --font-main: 'Noto Sans', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
 
   --shadow-soft: 0 10px 40px -10px rgba(211, 47, 47, 0.08);
   --shadow-hover: 0 30px 60px -12px rgba(211, 47, 47, 0.18);
@@ -37,9 +38,21 @@
 
 body {
   font-family: var(--font-main);
+  font-size: 16px;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
   background: #fdfdfd;
   color: var(--color-text-ink);
   min-height: 100vh;
+}
+
+html.a11y-large {
+  /* Large text mode for older staff (PNS) */
+  font-size: 18px;
+}
+
+input, textarea, select, button {
+  font-family: inherit;
 }
 
 .kiosk-viewport {
@@ -702,7 +715,7 @@ body {
 }
 
 .text-gradient-primary {
-  background: linear-gradient(135deg, #d02b29 0%, #009FA9 100%);
+  background: linear-gradient(135deg, #991b1b 0%, #009FA9 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

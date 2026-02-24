@@ -97,8 +97,8 @@ export function getStats() {
 // Export to CSV
 export function exportToCSV(): string {
     const visitors = getVisitors();
-    const headers = ["Nama", "NIP", "Jabatan", "Instansi", "Asal Daerah", "Provinsi", "Keperluan", "Nomor Surat", "Tanggal", "Waktu"];
-    const rows = visitors.map((v) => [v.name, v.nip, v.jabatan, v.organization, v.asalDaerah, v.provinsi, v.purpose, v.nomorSurat, v.date, v.timestamp]);
+    const headers = ["Nama", "NIP/NIK", "Jabatan", "Instansi", "Asal Daerah", "Provinsi", "Unit Tujuan", "Keperluan", "Nomor Surat", "Tanggal", "Waktu"];
+    const rows = visitors.map((v) => [v.name, v.nip, v.jabatan, v.organization, v.asalDaerah, v.provinsi, v.unit, v.purpose, v.nomorSurat, v.date, v.timestamp]);
 
     const csvContent = [headers.join(","), ...rows.map((r) => r.map((c) => `"${c}"`).join(","))].join("\n");
     return csvContent;

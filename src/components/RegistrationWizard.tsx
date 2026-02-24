@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import SuccessScreen from "./SuccessScreen";
 import { addVisitor } from "@/lib/visitorStore";
+import { createCaseFromVisitor } from "@/lib/caseStore";
 
 interface WizardData {
     name: string;
@@ -17,7 +18,7 @@ interface WizardData {
     nomorSurat: string;
 }
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 
 export default function RegistrationWizard({
     isOpen,
@@ -106,10 +107,12 @@ export default function RegistrationWizard({
     };
 
     const handleNext = () => {
-        // Only require name and organization
+        // Only require name, instansi asal, unit tujuan, dan keperluan
         if (step === 1 && !data.name.trim()) return;
-        if (step === 4 && !data.organization.trim()) return;
-        if (step === 7 && !data.purpose.trim()) return;
+        if (step === 2 && !data.organization.trim()) return;
+        if (step === 4 && !data.nip.trim()) return;
+        if (step === 5 && !data.unit.trim()) return;
+        if (step === 8 && !data.purpose.trim()) return;
         setStep((prev) => Math.min(prev + 1, TOTAL_STEPS));
     };
 
@@ -119,7 +122,7 @@ export default function RegistrationWizard({
         if (!signature && step === TOTAL_STEPS) return;
         setIsSubmitting(true);
 
-        addVisitor({
+        const v = addVisitor({
             name: data.name,
             nip: data.nip || "-",
             jabatan: data.jabatan || "-",
@@ -130,6 +133,8 @@ export default function RegistrationWizard({
             purpose: data.purpose,
             nomorSurat: data.nomorSurat || "-",
         });
+        // Dummy flow: create a case so Resepsionis can triage/assign it.
+        createCaseFromVisitor(v);
 
         setTimeout(() => {
             setIsSubmitting(false);
@@ -144,7 +149,7 @@ export default function RegistrationWizard({
     if (!isOpen) return null;
 
     const stepColors = [
-        { bg: "bg-red-50", text: "text-[#d02b29]", border: "border-red-100", focus: "focus:border-[#d02b29]" },
+        { bg: "bg-red-50", text: "text-[#991b1b]", border: "border-red-100", focus: "focus:border-[#991b1b]" },
         { bg: "bg-pink-50", text: "text-pink-600", border: "border-pink-100", focus: "focus:border-pink-500" },
         { bg: "bg-purple-50", text: "text-purple-600", border: "border-purple-100", focus: "focus:border-purple-500" },
         { bg: "bg-teal-50", text: "text-teal-600", border: "border-teal-100", focus: "focus:border-[#009FA9]" },
@@ -152,6 +157,7 @@ export default function RegistrationWizard({
         { bg: "bg-indigo-50", text: "text-indigo-600", border: "border-indigo-100", focus: "focus:border-indigo-500" },
         { bg: "bg-yellow-50", text: "text-yellow-600", border: "border-yellow-100", focus: "focus:border-[#FFAB00]" },
         { bg: "bg-rose-50", text: "text-rose-600", border: "border-rose-100", focus: "focus:border-rose-500" },
+        { bg: "bg-emerald-50", text: "text-emerald-600", border: "border-emerald-100", focus: "focus:border-emerald-500" },
     ];
 
     const currentColor = stepColors[step - 1] || stepColors[0];
@@ -160,7 +166,7 @@ export default function RegistrationWizard({
         <div className="fixed inset-0 z-50 flex flex-col items-center transition-all duration-500 ease-out overflow-y-auto scrollbar-hide pb-12">
             <div className="absolute inset-0 bg-white/80 transition-all duration-500" />
             <div className="absolute inset-0 z-0 overflow-hidden opacity-30 pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-[#d02b29]/5 rounded-full blur-[100px]" />
+                <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-[#991b1b]/5 rounded-full blur-[100px]" />
                 <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-[#009FA9]/10 rounded-full blur-[100px]" />
             </div>
 
@@ -168,11 +174,11 @@ export default function RegistrationWizard({
             <div className="absolute top-0 left-0 w-full p-8 flex justify-between items-center z-20">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-white shadow-sm border border-gray-100 rounded-xl flex items-center justify-center">
-                        <Image src="/lontara.svg" alt="Logo" width={24} height={24} className="opacity-80" />
+                        <Image src="/kominfos.svg" alt="Logo" width={24} height={24} className="opacity-80" />
                     </div>
                     <span className="font-bold text-[#172B4D] tracking-tight text-lg">Buku Tamu</span>
                 </div>
-                <button onClick={onClose} className="group flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 border border-white/60 hover:bg-white hover:shadow-md transition-all text-[#505F79] hover:text-[#d02b29]">
+                <button onClick={onClose} className="group flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 border border-white/60 hover:bg-white hover:shadow-md transition-all text-[#505F79] hover:text-[#991b1b]">
                     <span className="text-xs font-bold tracking-wider uppercase">Tutup</span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M18 6L6 18M6 6l12 12" />
@@ -186,7 +192,7 @@ export default function RegistrationWizard({
                 {step <= TOTAL_STEPS && (
                     <div className="flex items-center gap-1.5 mb-12">
                         {Array.from({ length: TOTAL_STEPS }, (_, i) => (
-                            <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i + 1 === step ? "w-10 bg-[#d02b29]" : i + 1 < step ? "w-3 bg-[#36B37E]" : "w-2 bg-gray-200"}`} />
+                            <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i + 1 === step ? "w-10 bg-[#991b1b]" : i + 1 < step ? "w-3 bg-[#36B37E]" : "w-2 bg-gray-200"}`} />
                         ))}
                     </div>
                 )}
@@ -204,15 +210,15 @@ export default function RegistrationWizard({
                         </div>
                     )}
 
-                    {/* Step 2: NIP */}
+                    {/* Step 2: Instansi */}
                     {step === 2 && (
                         <div className="w-full space-y-6">
                             <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
                                 Langkah 2 dari {TOTAL_STEPS}
                             </span>
-                            <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">NIP Anda?</h2>
-                            <p className="text-[#505F79] text-lg font-medium">Nomor Induk Pegawai (opsional).</p>
-                            <input ref={inputRef} type="text" value={data.nip} onChange={(e) => setData({ ...data, nip: e.target.value })} onKeyDown={handleKeyDown} placeholder="19700101200001001" className={`w-full max-w-xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 ${currentColor.focus} py-4 transition-colors font-medium mt-8 focus:outline-none`} />
+                            <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Instansi?</h2>
+                            <p className="text-[#505F79] text-lg font-medium">Organisasi atau lembaga Anda.</p>
+                            <input ref={inputRef} type="text" value={data.organization} onChange={(e) => setData({ ...data, organization: e.target.value })} onKeyDown={handleKeyDown} placeholder="PT / Dinas / Umum..." className={`w-full max-w-xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 ${currentColor.focus} py-4 transition-colors font-medium mt-8 focus:outline-none`} />
                         </div>
                     )}
 
@@ -228,23 +234,60 @@ export default function RegistrationWizard({
                         </div>
                     )}
 
-                    {/* Step 4: Instansi */}
+                    {/* Step 4: NIP/NIK */}
                     {step === 4 && (
                         <div className="w-full space-y-6">
                             <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
                                 Langkah 4 dari {TOTAL_STEPS}
                             </span>
-                            <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Instansi?</h2>
-                            <p className="text-[#505F79] text-lg font-medium">Organisasi atau lembaga Anda.</p>
-                            <input ref={inputRef} type="text" value={data.organization} onChange={(e) => setData({ ...data, organization: e.target.value })} onKeyDown={handleKeyDown} placeholder="PT / Dinas / Umum..." className={`w-full max-w-xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 ${currentColor.focus} py-4 transition-colors font-medium mt-8 focus:outline-none`} />
+                            <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">NIP / NIK?</h2>
+                            <p className="text-[#505F79] text-lg font-medium">Wajib diisi (NIP atau NIK).</p>
+                            <input ref={inputRef} inputMode="numeric" type="text" value={data.nip} onChange={(e) => setData({ ...data, nip: e.target.value })} onKeyDown={handleKeyDown} placeholder="19700101200001001 / 7371xxxxxxxxxxxx" className={`w-full max-w-xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 ${currentColor.focus} py-4 transition-colors font-medium mt-8 focus:outline-none`} />
                         </div>
                     )}
 
-                    {/* Step 5: Asal Daerah */}
+                    {/* Step 5: Unit Tujuan */}
                     {step === 5 && (
                         <div className="w-full space-y-6">
                             <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
                                 Langkah 5 dari {TOTAL_STEPS}
+                            </span>
+                            <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Unit Tujuan?</h2>
+                            <p className="text-[#505F79] text-lg font-medium">Pilih unit yang akan Anda kunjungi.</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl mx-auto mt-6">
+                                {[
+                                    { label: "UPT Warroom", desc: "Ruang Komando dan Koordinasi", icon: (
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18" /><path d="M7 14l4-4 3 3 7-7" /></svg>
+                                    ) },
+                                    { label: "Diskominfo Makassar", desc: "Layanan dan Administrasi", icon: (
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 21h18" /><path d="M5 21V7l8-4 8 4v14" /><path d="M9 21v-8h6v8" /></svg>
+                                    ) },
+                                ].map((opt) => (
+                                    <button
+                                        key={opt.label}
+                                        onClick={() => { setData({ ...data, unit: opt.label }); setTimeout(() => setStep(s => Math.min(s + 1, TOTAL_STEPS)), 150); }}
+                                        className={`p-5 rounded-2xl border-2 text-left transition-all duration-200 hover:-translate-y-0.5 ${data.unit === opt.label ? "bg-[#009FA9] text-white border-[#009FA9] shadow-lg shadow-[#009FA9]/20" : "bg-white border-gray-200 text-[#172B4D] hover:border-[#009FA9]"}`}
+                                    >
+                                        <div className="flex items-start gap-3">
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${data.unit === opt.label ? "bg-white/15" : "bg-[#009FA9]/10 text-[#009FA9]"}`}>
+                                                {opt.icon}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-base font-extrabold tracking-tight">{opt.label}</p>
+                                                <p className={`text-sm mt-1 ${data.unit === opt.label ? "text-white/80" : "text-[#505F79]"}`}>{opt.desc}</p>
+                                            </div>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Step 6: Asal Daerah */}
+                    {step === 6 && (
+                        <div className="w-full space-y-6">
+                            <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
+                                Langkah 6 dari {TOTAL_STEPS}
                             </span>
                             <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Daerah?</h2>
                             <p className="text-[#505F79] text-lg font-medium">Kota atau kabupaten asal.</p>
@@ -252,11 +295,11 @@ export default function RegistrationWizard({
                         </div>
                     )}
 
-                    {/* Step 6: Provinsi */}
-                    {step === 6 && (
+                    {/* Step 7: Provinsi */}
+                    {step === 7 && (
                         <div className="w-full space-y-6">
                             <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
-                                Langkah 6 dari {TOTAL_STEPS}
+                                Langkah 7 dari {TOTAL_STEPS}
                             </span>
                             <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Provinsi?</h2>
                             <p className="text-[#505F79] text-lg font-medium">Pilih provinsi asal Anda.</p>
@@ -268,7 +311,7 @@ export default function RegistrationWizard({
                                     "Sulawesi Utara", "Sulawesi Tengah", "Sulawesi Selatan", "Sulawesi Tenggara", "Gorontalo", "Sulawesi Barat",
                                     "Maluku", "Maluku Utara", "Papua Barat", "Papua", "Papua Tengah", "Papua Pegunungan", "Papua Selatan", "Papua Barat Daya"
                                 ].map((prov) => (
-                                    <button key={prov} onClick={() => { setData({ ...data, provinsi: prov }); setTimeout(() => setStep(s => s + 1), 150); }} className={`p-3 rounded-lg border transition-all duration-200 hover:-translate-y-0.5 text-left ${data.provinsi === prov ? "bg-[#009FA9] text-white border-[#009FA9]" : "bg-white border-gray-200 text-[#505F79] hover:border-[#009FA9]"}`}>
+                                    <button key={prov} onClick={() => { setData({ ...data, provinsi: prov }); setTimeout(() => setStep(s => Math.min(s + 1, TOTAL_STEPS)), 150); }} className={`p-3 rounded-lg border transition-all duration-200 hover:-translate-y-0.5 text-left ${data.provinsi === prov ? "bg-[#009FA9] text-white border-[#009FA9]" : "bg-white border-gray-200 text-[#505F79] hover:border-[#009FA9]"}`}>
                                         <span className="text-xs font-semibold">{prov}</span>
                                     </button>
                                 ))}
@@ -276,11 +319,11 @@ export default function RegistrationWizard({
                         </div>
                     )}
 
-                    {/* Step 7: Keperluan */}
-                    {step === 7 && (
+                    {/* Step 8: Keperluan */}
+                    {step === 8 && (
                         <div className="w-full space-y-6">
                             <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
-                                Langkah 7 dari {TOTAL_STEPS}
+                                Langkah 8 dari {TOTAL_STEPS}
                             </span>
                             <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Keperluan?</h2>
                             <p className="text-[#505F79] text-lg font-medium">Jelaskan maksud kunjungan Anda.</p>
@@ -292,8 +335,8 @@ export default function RegistrationWizard({
                         </div>
                     )}
 
-                    {/* Step 8: Tanda Tangan */}
-                    {step === 8 && (
+                    {/* Step 9: Tanda Tangan */}
+                    {step === 9 && (
                         <div className="w-full space-y-6">
                             <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
                                 Langkah {TOTAL_STEPS} dari {TOTAL_STEPS}
@@ -321,7 +364,7 @@ export default function RegistrationWizard({
                         <div className="flex items-center justify-center w-full min-h-[inherit]">
                             <SuccessScreen
                                 visitorName={data.name}
-                                unit={data.organization}
+                                unit={data.unit || "-"}
                                 photo={null}
                                 onClose={() => {
                                     setStep(1);
@@ -348,7 +391,7 @@ export default function RegistrationWizard({
                         <button
                             onClick={step < TOTAL_STEPS ? handleNext : handleSubmit}
                             disabled={isSubmitting || (step === TOTAL_STEPS && !signature)}
-                            className={`group flex items-center justify-center gap-3 px-8 py-4 text-white rounded-2xl transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed ${step === TOTAL_STEPS ? "bg-[#d02b29] shadow-[0_8px_30px_rgba(211,47,47,0.25)] hover:shadow-[0_15px_40px_rgba(211,47,47,0.35)]" : "bg-[#009FA9] shadow-[0_8px_30px_rgba(0,159,169,0.25)] hover:shadow-[0_15px_40px_rgba(0,159,169,0.35)]"} hover:-translate-y-1`}
+                            className={`group flex items-center justify-center gap-3 px-8 py-4 text-white rounded-2xl transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed ${step === TOTAL_STEPS ? "bg-[#991b1b] shadow-[0_8px_30px_rgba(211,47,47,0.25)] hover:shadow-[0_15px_40px_rgba(211,47,47,0.35)]" : "bg-[#009FA9] shadow-[0_8px_30px_rgba(0,159,169,0.25)] hover:shadow-[0_15px_40px_rgba(0,159,169,0.35)]"} hover:-translate-y-1`}
                         >
                             <span className="font-bold text-lg tracking-wide">
                                 {isSubmitting ? "Mengirim..." : step < TOTAL_STEPS ? "Lanjut" : "Simpan Data"}

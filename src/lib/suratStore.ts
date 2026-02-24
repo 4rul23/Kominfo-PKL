@@ -65,7 +65,7 @@ export interface SuratElektronik {
     jenisSurat: string;
     kodeSurat: string;         // Letter type code (SPm, SU, etc.)
     klasifikasi: string;       // Classification code (000-900)
-    tujuanUnit: string;
+    tujuanUnit?: string;  // Optional - removed from wizard
     isiSurat: string;
 
     // Attachments
@@ -144,7 +144,7 @@ type AddSuratInput = {
     alamatPengirim: string;
     perihal: string;
     jenisSurat: string;
-    tujuanUnit: string;
+    tujuanUnit?: string;  // Optional
     isiSurat: string;
     lampiran?: Attachment[];
     prioritas?: Prioritas;
@@ -380,75 +380,134 @@ export function updatePrioritas(id: string, prioritas: Prioritas): void {
 }
 
 // Seed dummy data for testing
+// Seed dummy data for testing
 export function seedDummySurat(): void {
-    const names = ["Andi Putra", "Budi Hartono", "Citra Dewi", "Dian Sari", "Eko Prasetyo"];
-    const instansis = ["PT Telkom Indonesia", "Universitas Hasanuddin", "Bank BRI", "Dinas Pendidikan", "CV Teknologi Maju"];
+    const names = ["Andi Putra", "Budi Hartono", "Citra Dewi", "Dian Sari", "Eko Prasetyo", "Fajar Nugraha", "Gita Pertiwi"];
+    const instansis = ["PT Telkom Indonesia", "Universitas Hasanuddin", "Bank BRI", "Dinas Pendidikan", "CV Teknologi Maju", "Kementerian Kominfo", "Polri"];
     const units = ["Bidang IKP", "Bidang Aptika", "Sekretariat", "Bidang Statistik", "Bidang E-Government"];
-    const jenisSuratList = ["Permohonan", "Undangan", "Laporan", "Pengaduan", "Informasi"];
-    const perihals = [
-        "Permohonan Data Statistik",
-        "Undangan Rapat Koordinasi",
-        "Laporan Hasil Kegiatan",
-        "Pengaduan Layanan Publik",
-        "Permintaan Informasi Publik"
-    ];
-
-    const suratList: SuratElektronik[] = [];
     const now = new Date();
     const romanMonths = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 
-    for (let i = 0; i < 15; i++) {
-        const daysAgo = Math.floor(Math.random() * 14);
-        const hour = 7 + Math.floor(Math.random() * 10);
-        const minute = Math.floor(Math.random() * 60);
-        const date = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-        const statuses: SuratElektronik["status"][] = ["submitted", "received", "processing", "completed", "archived"];
-        const jenisSurat = jenisSuratList[Math.floor(Math.random() * jenisSuratList.length)];
-        const kodeSurat = KODE_SURAT[jenisSurat] || "SE";
-        const status = statuses[Math.floor(Math.random() * statuses.length)];
+    const suratList: SuratElektronik[] = [];
+
+    // Helper to add days to a date
+    const addDays = (date: Date, days: number) => {
+        const result = new Date(date);
+        result.setDate(result.getDate() + days);
+        return result;
+    };
+
+    // Helper to create a surat
+    const createSurat = (
+        daysAgo: number,
+        prioritas: Prioritas,
+        status: SuratElektronik["status"],
+        subject: string,
+        withDisposisi: boolean = false
+    ): SuratElektronik => {
+        const date = addDays(now, -daysAgo);
         const month = String(date.getMonth() + 1).padStart(2, "0");
-
-        const prioritasOptions: Prioritas[] = ["tinggi", "normal", "rendah"];
-        const prioritas = prioritasOptions[Math.floor(Math.random() * prioritasOptions.length)];
-        // SLA: tinggi = 1 day, normal = 3 days, rendah = 5 days
         const slaDays = prioritas === "tinggi" ? 1 : prioritas === "normal" ? 3 : 5;
-        const slaDeadline = new Date(date.getTime() + slaDays * 24 * 60 * 60 * 1000).toISOString();
+        const slaDeadline = addDays(date, slaDays).toISOString();
 
-        suratList.push({
-            id: crypto.randomUUID(),
-            trackingId: `TRK-${date.getFullYear()}-${month}-${String(i + 1).padStart(4, "0")}`,
-            nomorSurat: `${String(i + 1).padStart(3, "0")}/SE.${kodeSurat}/DISKOMINFO/${romanMonths[date.getMonth()]}/${date.getFullYear()}`,
+        const id = crypto.randomUUID();
+        const history: StatusChange[] = [{
+            status: "submitted",
+            timestamp: date.toISOString(),
+            note: "Surat elektronik berhasil dikirim"
+        }];
+
+        if (["received", "processing", "completed", "archived"].includes(status)) {
+            history.push({
+                status: "received",
+                timestamp: addDays(date, 0.1).toISOString(),
+                note: "Surat diterima oleh admin"
+            });
+        }
+
+        let disposisi: Disposisi | undefined = undefined;
+        if (withDisposisi || ["processing", "completed", "archived"].includes(status)) {
+            history.push({
+                status: "processing",
+                timestamp: addDays(date, 0.2).toISOString(),
+                note: "Surat sedang diproses"
+            });
+            disposisi = {
+                assignedTo: "Budi Santoso (Staff Administrasi)",
+                instruksi: ["Tindak Lanjuti", "Koordinasikan"],
+                catatan: "Mohon segera diproses sesuai SOP.",
+                tanggalDisposisi: addDays(date, 0.2).toISOString(),
+                disposisiOleh: "Admin Utama"
+            };
+        }
+
+        if (["completed", "archived"].includes(status)) {
+            history.push({
+                status: "completed",
+                timestamp: addDays(date, 1).toISOString(),
+                note: "Selesai ditindaklanjuti"
+            });
+        }
+
+        const unit = units[Math.floor(Math.random() * units.length)];
+
+        return {
+            id,
+            trackingId: `TRK-${date.getFullYear()}-${month}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+            nomorSurat: `${String(Math.floor(Math.random() * 100) + 1).padStart(3, "0")}/SE/DISKOMINFO/${romanMonths[date.getMonth()]}/${date.getFullYear()}`,
             namaPengirim: names[Math.floor(Math.random() * names.length)],
-            emailPengirim: `user${i}@example.com`,
-            teleponPengirim: `0812${String(Math.floor(Math.random() * 100000000)).padStart(8, "0")}`,
+            emailPengirim: "user@example.com",
+            teleponPengirim: "08123456789",
             instansiPengirim: instansis[Math.floor(Math.random() * instansis.length)],
-            alamatPengirim: "Jl. Contoh No. " + (Math.floor(Math.random() * 100) + 1),
-            perihal: perihals[Math.floor(Math.random() * perihals.length)],
-            jenisSurat,
-            kodeSurat,
+            alamatPengirim: "Jl. Merdeka No. 1, Kota Makassar",
+            perihal: subject,
+            jenisSurat: "Permohonan",
+            kodeSurat: "SPm",
             klasifikasi: "000",
-            tujuanUnit: units[Math.floor(Math.random() * units.length)],
-            isiSurat: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt.",
+            tujuanUnit: unit,
+            isiSurat: "Dengan hormat, kami mengajukan permohonan...",
             lampiran: [],
             prioritas,
             slaDeadline,
             status,
-            statusHistory: [{
-                status: "submitted",
-                timestamp: date.toISOString(),
-                note: "Surat elektronik berhasil dikirim"
-            }],
-            timestamp: `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`,
+            statusHistory: history,
+            disposisi,
+            timestamp: date.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }).replace('.', ':'),
             date: date.toISOString().split("T")[0],
             lastUpdated: date.toISOString(),
-        });
+        };
+    };
+
+    // 1. OVERDUE High Priority (Submitted 3 days ago, SLA 1 day) -> Status Received (not completed)
+    suratList.push(createSurat(3, "tinggi", "received", "Permohonan Data Segera (URGENT OVERDUE)"));
+
+    // 2. WARNING Normal Priority (Submitted 2 days ago, SLA 3 days) -> Status Processing
+    suratList.push(createSurat(2, "normal", "processing", "Undangan Rapat Koordinasi (WARNING)", true));
+
+    // 3. SAFE Low Priority (Submitted 1 day ago, SLA 5 days) -> Status Submitted
+    suratList.push(createSurat(1, "rendah", "submitted", "Laporan Bulanan Rutin"));
+
+    // 4. Completed High Priority
+    suratList.push(createSurat(5, "tinggi", "completed", "Permohonan Fasilitasi Zoom (Selesai)", true));
+
+    // 5. Archived Normal Priority
+    suratList.push(createSurat(10, "normal", "archived", "Undangan Sosialisasi (Arsip)", true));
+
+    // 6. Recently Submitted High Priority
+    suratList.push(createSurat(0, "tinggi", "submitted", "Laporan Insiden Keamanan (BARU)"));
+
+    // Add some random ones to fill up
+    for (let i = 0; i < 8; i++) {
+        const p = Math.random() > 0.7 ? "tinggi" : Math.random() > 0.4 ? "normal" : "rendah";
+        const s = ["submitted", "received", "processing", "completed"][Math.floor(Math.random() * 4)] as SuratElektronik["status"];
+        suratList.push(createSurat(Math.floor(Math.random() * 7), p, s, `Surat Umum #${i + 1}`, s === "processing" || s === "completed"));
     }
 
-    suratList.sort((a, b) => {
-        if (a.date !== b.date) return b.date.localeCompare(a.date);
-        return b.timestamp.localeCompare(a.timestamp);
-    });
+    // Sort by date desc
+    suratList.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(suratList));
+    // Trigger storage event to update components if listening
+    window.dispatchEvent(new Event("storage"));
 }
 
