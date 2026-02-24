@@ -3,16 +3,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
+import CameraCapture from "@/components/CameraCapture";
 import {
+    ATTENDANCE_UPDATED_EVENT,
     addAttendanceEntry,
+    getAttendanceSnapshot,
     type AttendanceEntry,
+    type ParticipantQuotaStatus,
+    validateAttendanceName,
+    validateAttendanceNip,
+    validateAttendancePhone,
 } from "@/lib/attendanceStore";
 import {
     ATTENDANCE_SOURCE,
     LONTARA_MEETING_PARTICIPANTS,
+    getParticipantRoleOptions,
 } from "@/lib/meetingParticipants";
 
-const TOTAL_STEPS = 2;
+const TOTAL_STEPS = 5;
 const SUCCESS_STEP = TOTAL_STEPS + 1;
 const AUTO_RESET_MS = 4000;
 
@@ -22,22 +30,36 @@ interface AttendanceWizardProps {
 
 interface WizardData {
     name: string;
+    phoneNumber: string;
+    nip: string;
     participantId: string;
+    participantRole: string;
+    selfieDataUrl: string | null;
 }
 
 export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
     const [step, setStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
+    const [quotaSyncTick, setQuotaSyncTick] = useState(0);
     const [submittedEntry, setSubmittedEntry] = useState<AttendanceEntry | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [isParticipantPanelOpen, setIsParticipantPanelOpen] = useState(false);
+    const [isSelfieCameraOpen, setIsSelfieCameraOpen] = useState(false);
+    const [participantQuotaMap, setParticipantQuotaMap] = useState<Record<string, ParticipantQuotaStatus>>({});
+    const [participantRoleCountMap, setParticipantRoleCountMap] = useState<Record<string, Record<string, number>>>({});
     const [data, setData] = useState<WizardData>({
         name: "",
+        phoneNumber: "",
+        nip: "",
         participantId: "",
+        participantRole: "",
+        selfieDataUrl: null,
     });
 
     const nameInputRef = useRef<HTMLInputElement>(null);
+    const phoneInputRef = useRef<HTMLInputElement>(null);
+    const nipInputRef = useRef<HTMLInputElement>(null);
     const comboboxRef = useRef<HTMLInputElement>(null);
     const participantStepRef = useRef<HTMLDivElement>(null);
     const successPrimaryButtonRef = useRef<HTMLButtonElement>(null);
@@ -53,25 +75,60 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         return LONTARA_MEETING_PARTICIPANTS.filter((p) => p.label.toLowerCase().includes(query));
     }, [searchQuery]);
 
-    const isNameValid = data.name.trim().length > 1;
-    const isParticipantValid = Boolean(selectedParticipant);
+    const nameValidation = useMemo(() => validateAttendanceName(data.name), [data.name]);
+    const phoneValidation = useMemo(
+        () => validateAttendancePhone(data.phoneNumber),
+        [data.phoneNumber],
+    );
+    const nipValidation = useMemo(() => validateAttendanceNip(data.nip), [data.nip]);
+    const selectedRoleOptions = useMemo(
+        () => getParticipantRoleOptions(selectedParticipant),
+        [selectedParticipant],
+    );
+    const selectedRoleCounts = selectedParticipant
+        ? participantRoleCountMap[selectedParticipant.id] ?? {}
+        : {};
+    const selectedRoleStatuses = selectedRoleOptions.map((role) => ({
+        role,
+        count: selectedRoleCounts[role] ?? 0,
+        isFull: (selectedRoleCounts[role] ?? 0) >= 1,
+    }));
+    const selectedParticipantQuota = selectedParticipant
+        ? participantQuotaMap[selectedParticipant.id]
+        : null;
+
+    const isRoleRequired = selectedRoleOptions.length > 0;
+    const selectedRoleStatus = selectedRoleStatuses.find((role) => role.role === data.participantRole);
+    const isRoleValid = !isRoleRequired || Boolean(selectedRoleStatus && !selectedRoleStatus.isFull);
+    const isNameValid = nameValidation.isValid;
+    const isParticipantValid =
+        Boolean(selectedParticipant)
+        && !selectedParticipantQuota?.isFull
+        && isRoleValid;
     const isCurrentStepValid =
         (step === 1 && isNameValid) ||
-        (step === 2 && isParticipantValid);
-    const showParticipantResults = step === 2 && isParticipantPanelOpen;
+        (step === 2 && phoneValidation.isValid) ||
+        (step === 3 && nipValidation.isValid) ||
+        (step === 4) ||
+        (step === 5 && isParticipantValid);
+    const showParticipantResults = step === 5 && isParticipantPanelOpen;
     const isSuccessStep = step === SUCCESS_STEP;
 
     useEffect(() => {
         if (step === 1) {
             nameInputRef.current?.focus();
         } else if (step === 2) {
+            phoneInputRef.current?.focus();
+        } else if (step === 3) {
+            nipInputRef.current?.focus();
+        } else if (step === 5) {
             comboboxRef.current?.focus();
             setIsParticipantPanelOpen(false);
         }
     }, [step]);
 
     useEffect(() => {
-        if (step !== 2 || !isParticipantPanelOpen) return undefined;
+        if (step !== 5 || !isParticipantPanelOpen) return undefined;
 
         const handleOutsidePointerDown = (event: PointerEvent) => {
             const target = event.target as Node | null;
@@ -83,6 +140,34 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         window.addEventListener("pointerdown", handleOutsidePointerDown);
         return () => window.removeEventListener("pointerdown", handleOutsidePointerDown);
     }, [step, isParticipantPanelOpen]);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function loadQuotaData() {
+            try {
+                const snapshot = await getAttendanceSnapshot(ATTENDANCE_SOURCE);
+                if (cancelled) return;
+                setParticipantQuotaMap(snapshot.quotaMap);
+                setParticipantRoleCountMap(snapshot.roleCountMap);
+            } catch {
+                if (cancelled) return;
+                setParticipantQuotaMap({});
+                setParticipantRoleCountMap({});
+            }
+        }
+        loadQuotaData();
+        return () => {
+            cancelled = true;
+        };
+    }, [quotaSyncTick]);
+
+    useEffect(() => {
+        const syncQuota = () => setQuotaSyncTick((prev) => prev + 1);
+        window.addEventListener(ATTENDANCE_UPDATED_EVENT, syncQuota);
+        return () => {
+            window.removeEventListener(ATTENDANCE_UPDATED_EVENT, syncQuota);
+        };
+    }, []);
 
     useEffect(() => {
         if (step !== SUCCESS_STEP) return undefined;
@@ -104,23 +189,66 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         setStep(1);
         setData({
             name: "",
+            phoneNumber: "",
+            nip: "",
             participantId: "",
+            participantRole: "",
+            selfieDataUrl: null,
         });
         setSearchQuery("");
         setIsParticipantPanelOpen(false);
+        setIsSelfieCameraOpen(false);
         setErrorMessage("");
         setSubmittedEntry(null);
         setIsSubmitting(false);
     }
 
     function handleParticipantSelect(participantId: string, participantLabel: string) {
-        setData((prev) => ({ ...prev, participantId }));
+        const quota = participantQuotaMap[participantId];
+        if (quota?.isFull) {
+            setErrorMessage("Kuota untuk jabatan / unit ini sudah penuh. Pilih unit lain.");
+            return;
+        }
+
+        const participant = LONTARA_MEETING_PARTICIPANTS.find((item) => item.id === participantId) ?? null;
+        const roleOptions = getParticipantRoleOptions(participant);
+        const defaultParticipantRole = roleOptions.length > 0 ? "" : "-";
+
+        setErrorMessage("");
+        setData((prev) => ({ ...prev, participantId, participantRole: defaultParticipantRole }));
         setSearchQuery(participantLabel);
         setIsParticipantPanelOpen(false);
     }
 
     function handleNext() {
-        if (!isCurrentStepValid || step >= TOTAL_STEPS) return;
+        if (step >= TOTAL_STEPS) return;
+        if (!isCurrentStepValid) {
+            if (step === 1) {
+                if (!nameValidation.isValid) {
+                    setErrorMessage(nameValidation.message);
+                    return;
+                }
+            }
+            if (step === 2 && !phoneValidation.isValid) {
+                setErrorMessage(phoneValidation.message);
+                return;
+            }
+            if (step === 3 && !nipValidation.isValid) {
+                setErrorMessage(nipValidation.message);
+                return;
+            }
+            if (step === 5) {
+                if (selectedParticipantQuota?.isFull) {
+                    setErrorMessage("Kuota untuk jabatan / unit ini sudah penuh. Pilih unit lain.");
+                    return;
+                }
+                if (isRoleRequired && !selectedRoleStatus) {
+                    setErrorMessage("Pilih jabatan spesifik peserta SKPD (Kepala / Operator).");
+                    return;
+                }
+            }
+            return;
+        }
         setErrorMessage("");
         setStep((prev) => Math.min(prev + 1, TOTAL_STEPS));
     }
@@ -130,9 +258,65 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         setStep((prev) => Math.max(prev - 1, 1));
     }
 
-    function handleSubmit() {
+    function handleParticipantRoleSelect(role: string) {
+        const roleStatus = selectedRoleStatuses.find((item) => item.role === role);
+        if (!roleStatus || roleStatus.isFull) {
+            setErrorMessage("Peran yang dipilih sudah penuh. Pilih peran lain.");
+            return;
+        }
+
+        setErrorMessage("");
+        setData((prev) => ({ ...prev, participantRole: role }));
+    }
+
+    function handleSelfieCapture(imageDataUrl: string) {
+        setErrorMessage("");
+        setData((prev) => ({ ...prev, selfieDataUrl: imageDataUrl }));
+        setIsSelfieCameraOpen(false);
+    }
+
+    function handleSelfieRetake() {
+        setData((prev) => ({ ...prev, selfieDataUrl: null }));
+        setIsSelfieCameraOpen(true);
+    }
+
+    function handleSelfieRemove() {
+        setData((prev) => ({ ...prev, selfieDataUrl: null }));
+        setIsSelfieCameraOpen(false);
+    }
+
+    async function handleSubmit() {
         if (isSubmitting) return;
-        if (!isNameValid || !isParticipantValid || !selectedParticipant) {
+        if (!isNameValid) {
+            setErrorMessage(nameValidation.message);
+            return;
+        }
+
+        if (!phoneValidation.isValid) {
+            setErrorMessage(phoneValidation.message);
+            setStep(2);
+            return;
+        }
+
+        if (!nipValidation.isValid) {
+            setErrorMessage(nipValidation.message);
+            setStep(3);
+            return;
+        }
+
+        if (!isParticipantValid || !selectedParticipant) {
+            if (selectedParticipantQuota?.isFull) {
+                setErrorMessage("Kuota untuk jabatan / unit ini sudah penuh. Pilih unit lain.");
+                return;
+            }
+            if (isRoleRequired && !selectedRoleStatus) {
+                setErrorMessage("Pilih jabatan spesifik peserta SKPD (Kepala / Operator).");
+                return;
+            }
+            if (selectedRoleStatus?.isFull) {
+                setErrorMessage(`Kuota untuk peran ${selectedRoleStatus.role} sudah penuh.`);
+                return;
+            }
             setErrorMessage("Lengkapi semua field wajib sebelum menyimpan.");
             return;
         }
@@ -141,17 +325,22 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         setErrorMessage("");
 
         try {
-            const created = addAttendanceEntry({
+            const created = await addAttendanceEntry({
                 name: data.name.trim(),
                 jabatan: selectedParticipant.label,
                 // Instansi now follows selected category from step 2.
                 instansi: selectedParticipant.label,
+                phoneNumber: data.phoneNumber,
+                nip: data.nip,
                 participantId: selectedParticipant.id,
                 participantLabel: selectedParticipant.label,
+                participantRole: data.participantRole || "-",
+                selfieDataUrl: data.selfieDataUrl,
                 source: ATTENDANCE_SOURCE,
             });
 
             setSubmittedEntry(created);
+            setQuotaSyncTick((prev) => prev + 1);
             setStep(SUCCESS_STEP);
         } catch (error) {
             setErrorMessage(error instanceof Error ? error.message : "Gagal menyimpan data absensi.");
@@ -225,7 +414,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: -15, scale: 0.98 }}
                             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                            className={`w-full min-h-0 flex flex-col items-center relative ${isSuccessStep ? "max-w-5xl justify-center" : "max-w-4xl"} ${step === 2 && showParticipantResults ? "justify-start h-full" : "justify-center"}`}
+                            className={`w-full min-h-0 flex flex-col items-center relative ${isSuccessStep ? "max-w-5xl justify-center" : "max-w-4xl"} ${step === 5 && showParticipantResults ? "justify-start h-full" : "justify-center"}`}
                         >
                             {step === 1 && (
                                 <div className="w-full max-w-3xl mx-auto space-y-5">
@@ -240,15 +429,155 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                         ref={nameInputRef}
                                         type="text"
                                         value={data.name}
-                                        onChange={(e) => setData((prev) => ({ ...prev, name: e.target.value }))}
-                                        onKeyDown={(e) => { if (e.key === "Enter") handleNext(); }}
+                                        onChange={(e) => {
+                                            setErrorMessage("");
+                                            setData((prev) => ({ ...prev, name: e.target.value }));
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && isNameValid) handleNext();
+                                        }}
                                         placeholder="Contoh: Pratama Wijaya"
                                         className="w-full max-w-3xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 focus:border-[#991b1b] py-3 transition-colors font-medium mt-4 focus:outline-none register-a11y-input"
                                     />
+                                    {data.name.trim().length > 0 && !isNameValid && (
+                                        <p className="text-sm font-semibold text-[#991b1b] mt-2">
+                                            {nameValidation.message}
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
                             {step === 2 && (
+                                <div className="w-full max-w-3xl mx-auto space-y-5">
+                                    <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">
+                                        Nomor HP Peserta
+                                    </h2>
+                                    <p className="text-[#505F79] text-lg font-medium">
+                                        Masukkan nomor HP aktif peserta (format Indonesia).
+                                    </p>
+
+                                    <input
+                                        ref={phoneInputRef}
+                                        type="tel"
+                                        value={data.phoneNumber}
+                                        onChange={(e) => {
+                                            setErrorMessage("");
+                                            setData((prev) => ({ ...prev, phoneNumber: e.target.value }));
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && phoneValidation.isValid) handleNext();
+                                        }}
+                                        placeholder="08xxxxxxxxxx"
+                                        className="w-full max-w-3xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 focus:border-[#009FA9] py-3 transition-colors font-medium mt-4 focus:outline-none register-a11y-input"
+                                    />
+                                    {data.phoneNumber.trim().length > 0 && !phoneValidation.isValid && (
+                                        <p className="text-sm font-semibold text-[#991b1b] mt-2">
+                                            {phoneValidation.message}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {step === 3 && (
+                                <div className="w-full max-w-3xl mx-auto space-y-5">
+                                    <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">
+                                        NIP Peserta
+                                    </h2>
+                                    <p className="text-[#505F79] text-lg font-medium">
+                                        Masukkan NIP pegawai (18 digit angka).
+                                    </p>
+
+                                    <input
+                                        ref={nipInputRef}
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={data.nip}
+                                        onChange={(e) => {
+                                            setErrorMessage("");
+                                            setData((prev) => ({ ...prev, nip: e.target.value }));
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && nipValidation.isValid) handleNext();
+                                        }}
+                                        placeholder="Masukkan NIP (angka)"
+                                        className="w-full max-w-3xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 focus:border-[#009FA9] py-3 transition-colors font-medium mt-4 focus:outline-none register-a11y-input"
+                                    />
+                                    {data.nip.trim().length > 0 && !nipValidation.isValid && (
+                                        <p className="text-sm font-semibold text-[#991b1b] mt-2">
+                                            {nipValidation.message}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {step === 4 && (
+                                <div className="w-full max-w-3xl mx-auto space-y-5">
+                                    <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">
+                                        Swafoto Peserta
+                                    </h2>
+                                    <p className="text-[#505F79] text-lg font-medium">
+                                        Ambil foto langsung dari kamera komputer (opsional).
+                                    </p>
+
+                                    <div className="pt-4 flex flex-col items-center gap-3">
+                                        {isSelfieCameraOpen ? (
+                                            <>
+                                                <CameraCapture
+                                                    initialImage={null}
+                                                    onCapture={handleSelfieCapture}
+                                                    onRetake={handleSelfieRetake}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsSelfieCameraOpen(false)}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:text-[#172B4D] hover:border-slate-300 transition-colors"
+                                                >
+                                                    Tutup Kamera
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setErrorMessage("");
+                                                        setIsSelfieCameraOpen(true);
+                                                    }}
+                                                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-[#172B4D] hover:border-[#009FA9]/40 hover:text-[#007A82] transition-colors"
+                                                >
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                                                        <circle cx="12" cy="13" r="4" />
+                                                    </svg>
+                                                    {data.selfieDataUrl ? "Ambil Ulang Swafoto" : "Buka Kamera untuk Swafoto"}
+                                                </button>
+                                                {data.selfieDataUrl && (
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-20 h-20 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                                                            <Image
+                                                                src={data.selfieDataUrl}
+                                                                alt="Preview swafoto"
+                                                                width={80}
+                                                                height={80}
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleSelfieRemove}
+                                                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:text-rose-600 hover:border-rose-200 transition-colors"
+                                                        >
+                                                            Hapus Foto
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {step === 5 && (
                                 <motion.div
                                     ref={participantStepRef}
                                     layout
@@ -286,8 +615,11 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                                 onFocus={() => setIsParticipantPanelOpen(true)}
                                                 onChange={(e) => {
                                                     if (!isParticipantPanelOpen) setIsParticipantPanelOpen(true);
+                                                    setErrorMessage("");
                                                     setSearchQuery(e.target.value);
-                                                    if (data.participantId) setData(prev => ({ ...prev, participantId: "" }));
+                                                    if (data.participantId) {
+                                                        setData((prev) => ({ ...prev, participantId: "", participantRole: "" }));
+                                                    }
                                                 }}
                                                 placeholder="Ketik untuk mencari jabatan / unit..."
                                                 className="w-full bg-transparent text-lg md:text-xl text-[#172B4D] placeholder:text-slate-400 py-4 px-4 font-semibold focus:outline-none"
@@ -301,7 +633,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                                         onMouseDown={(e) => {
                                                             e.preventDefault();
                                                             setSearchQuery("");
-                                                            setData((prev) => ({ ...prev, participantId: "" }));
+                                                            setData((prev) => ({ ...prev, participantId: "", participantRole: "" }));
                                                             setIsParticipantPanelOpen(true);
                                                             comboboxRef.current?.focus();
                                                         }}
@@ -313,6 +645,53 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                             </AnimatePresence>
                                         </div>
                                     </motion.div>
+
+                                    {selectedParticipant && selectedParticipantQuota && (
+                                        <div className="mt-3 text-left">
+                                            <span
+                                                className={`inline-flex text-[0.78rem] font-bold px-3 py-1.5 rounded-full ${selectedParticipantQuota.isFull
+                                                    ? "bg-rose-100 text-rose-700"
+                                                    : "bg-emerald-100 text-emerald-700"
+                                                    }`}
+                                            >
+                                                {selectedParticipantQuota.isFull
+                                                    ? `Kuota ${selectedParticipantQuota.expectedCount}/${selectedParticipantQuota.expectedCount} sudah penuh`
+                                                    : `Kuota tersisa ${selectedParticipantQuota.remainingCount} dari ${selectedParticipantQuota.expectedCount}`}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {selectedParticipant && selectedRoleOptions.length > 0 && (
+                                        <div className="mt-3 text-left rounded-2xl border border-slate-200 bg-white/90 p-3">
+                                            <p className="text-[0.78rem] font-bold uppercase tracking-[0.12em] text-[#6B778C] mb-2">
+                                                Jabatan Spesifik SKPD
+                                            </p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {selectedRoleStatuses.map((roleItem) => {
+                                                    const isSelected = data.participantRole === roleItem.role;
+                                                    return (
+                                                        <button
+                                                            key={roleItem.role}
+                                                            type="button"
+                                                            onClick={() => handleParticipantRoleSelect(roleItem.role)}
+                                                            disabled={roleItem.isFull}
+                                                            className={`px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${isSelected
+                                                                ? "border-[#009FA9] bg-[#009FA9]/10 text-[#007A82]"
+                                                                : roleItem.isFull
+                                                                    ? "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+                                                                    : "border-slate-200 bg-white text-[#172B4D] hover:border-[#009FA9]/45"
+                                                                }`}
+                                                        >
+                                                            {roleItem.role}
+                                                            <span className="ml-2 text-[0.68rem] font-bold opacity-75">
+                                                                {roleItem.isFull ? "penuh" : "tersedia"}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <AnimatePresence initial={false}>
                                         {showParticipantResults && (
@@ -327,16 +706,26 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                                         {filteredParticipants.length > 0 ? (
                                                             filteredParticipants.map((item) => {
                                                                 const isSelected = data.participantId === item.id;
+                                                                const quota = participantQuotaMap[item.id] ?? {
+                                                                    currentCount: 0,
+                                                                    expectedCount: item.expectedCount,
+                                                                    remainingCount: item.expectedCount,
+                                                                    isFull: false,
+                                                                };
+                                                                const isDisabled = quota.isFull;
                                                                 return (
                                                                     <button
                                                                         key={item.id}
+                                                                        disabled={isDisabled}
                                                                         onPointerDown={(e) => {
                                                                             e.preventDefault();
                                                                             handleParticipantSelect(item.id, item.label);
                                                                         }}
                                                                         className={`w-full text-left px-4 py-3 rounded-[24px] border transition-all duration-200 ${isSelected
                                                                             ? "border-[#009FA9] bg-[#009FA9]/10"
-                                                                            : "border-slate-200 bg-white hover:border-[#009FA9]/40 hover:bg-slate-50"
+                                                                            : isDisabled
+                                                                                ? "border-slate-200 bg-slate-50/70 opacity-70 cursor-not-allowed"
+                                                                                : "border-slate-200 bg-white hover:border-[#009FA9]/40 hover:bg-slate-50"
                                                                             }`}
                                                                     >
                                                                         <div className="flex items-start gap-3">
@@ -346,9 +735,16 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                                                                     <circle cx="12" cy="7" r="4" />
                                                                                 </svg>
                                                                             </div>
-                                                                            <span className="block text-base md:text-lg font-semibold leading-snug text-[#172B4D]">
-                                                                                {item.label}
-                                                                            </span>
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <span className="block text-base md:text-lg font-semibold leading-snug text-[#172B4D]">
+                                                                                    {item.label}
+                                                                                </span>
+                                                                                <span className={`inline-flex mt-2 text-[0.72rem] font-bold px-2.5 py-1 rounded-full ${isDisabled ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
+                                                                                    {isDisabled
+                                                                                        ? `Kuota penuh (${quota.currentCount}/${quota.expectedCount})`
+                                                                                        : `Sisa ${quota.remainingCount} dari ${quota.expectedCount}`}
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
                                                                     </button>
                                                                 );
@@ -391,7 +787,11 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                         </div>
 
                                         <h2 className="completion-name">{submittedEntry.name}</h2>
-                                        <p className="completion-role">{submittedEntry.participantLabel}</p>
+                                        <p className="completion-role">
+                                            {submittedEntry.participantRole && submittedEntry.participantRole !== "-"
+                                                ? `${submittedEntry.participantRole} • ${submittedEntry.participantLabel}`
+                                                : submittedEntry.participantLabel}
+                                        </p>
 
                                         <div className="completion-countdown" aria-hidden="true">
                                             <div className="completion-countdown-rail">
