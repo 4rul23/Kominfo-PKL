@@ -91,10 +91,12 @@ export default function Home() {
   const [guestListRoleFilter, setGuestListRoleFilter] = useState("ALL");
   const [transitionState, setTransitionState] = useState({ isVisible: false, message: "" });
   const isLoadingAttendanceRef = useRef(false);
+  const isStreamConnectedRef = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
-    const enableAttendanceStream = process.env.NEXT_PUBLIC_ENABLE_ATTENDANCE_STREAM === "true";
+    // Stream is enabled by default. Set NEXT_PUBLIC_ENABLE_ATTENDANCE_STREAM=false to disable explicitly.
+    const enableAttendanceStream = process.env.NEXT_PUBLIC_ENABLE_ATTENDANCE_STREAM !== "false";
 
     const loadAttendance = async () => {
       if (isLoadingAttendanceRef.current) return;
@@ -129,10 +131,14 @@ export default function Home() {
       if (!enableAttendanceStream) return;
       if (!("EventSource" in window)) return;
       stream = new EventSource("/api/attendance/stream");
+      stream.onopen = () => {
+        isStreamConnectedRef.current = true;
+      };
       stream.addEventListener("attendance-updated", () => {
         void loadAttendance();
       });
       stream.onerror = () => {
+        isStreamConnectedRef.current = false;
         stream?.close();
         stream = null;
         clearReconnectTimer();
@@ -145,6 +151,15 @@ export default function Home() {
     connectRealtimeStream();
     const interval = setInterval(() => {
       if (document.visibilityState !== "visible") return;
+      // Fast fallback when stream is unavailable/disconnected.
+      if (!enableAttendanceStream || !isStreamConnectedRef.current) {
+        void loadAttendance();
+      }
+    }, 5000);
+    const slowInterval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (!enableAttendanceStream) return;
+      if (!isStreamConnectedRef.current) return;
       void loadAttendance();
     }, 30000);
     const handleStorage = () => {
@@ -158,6 +173,7 @@ export default function Home() {
         }
         void loadAttendance();
       } else {
+        isStreamConnectedRef.current = false;
         stream?.close();
         stream = null;
       }
@@ -168,7 +184,9 @@ export default function Home() {
 
     return () => {
       clearInterval(interval);
+      clearInterval(slowInterval);
       clearReconnectTimer();
+      isStreamConnectedRef.current = false;
       stream?.close();
       window.removeEventListener(ATTENDANCE_UPDATED_EVENT, handleStorage);
       document.removeEventListener("visibilitychange", handleVisibility);
