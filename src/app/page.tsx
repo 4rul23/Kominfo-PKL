@@ -1,17 +1,25 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import {
+  ATTENDANCE_UPDATED_EVENT,
+  getAttendanceEntries,
+  getTodayAttendanceCount,
+  type AttendanceEntry,
+} from "@/lib/attendanceStore";
 
-// Static visitor data - moved outside component to avoid recreation
-const RECENT_VISITORS = [
-  { name: "Pratama Wijaya", unit: "Bidang IKP", time: "2 menit yang lalu", faded: false },
-  { name: "Larasati Putri", unit: "Bidang Aptika", time: "14 menit yang lalu", faded: false },
-  { name: "Hendra Kurnia", unit: "Sekretariat", time: "45 menit yang lalu", faded: true },
-] as const;
+function formatTimeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.max(1, Math.floor(diffMs / 60000));
+  if (minutes < 60) return `${minutes} menit yang lalu`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} jam yang lalu`;
+  const days = Math.floor(hours / 24);
+  return `${days} hari yang lalu`;
+}
 
-// Live Clock - memoized options object
 const CLOCK_OPTIONS: Intl.DateTimeFormatOptions = {
   weekday: "long",
   day: "numeric",
@@ -39,28 +47,111 @@ function LiveClock() {
   return <>{time || "Loading..."}</>;
 }
 
-
-// Main Page - EXACT structure from original
 export default function Home() {
+  const [recentAttendance, setRecentAttendance] = useState<AttendanceEntry[]>([]);
+  const [todayAttendanceCount, setTodayAttendanceCount] = useState(0);
 
-  // Visitor list - functional design
-  const visitorList = useMemo(() => RECENT_VISITORS.map((visitor, i) => (
-    <div key={i} className={`flex items-start gap-3 py-2.5 ${i < RECENT_VISITORS.length - 1 ? "border-b border-slate-100" : ""} ${visitor.faded ? "opacity-50" : ""}`}>
-      <span className="text-sm text-slate-300 font-medium w-5 pt-0.5">{i + 1}.</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-[15px] font-semibold text-slate-700 leading-tight truncate">{visitor.name}</p>
-        <p className="text-[13px] text-slate-400 leading-tight mt-1">{visitor.unit}</p>
+  useEffect(() => {
+    const loadAttendance = () => {
+      setRecentAttendance(getAttendanceEntries());
+      setTodayAttendanceCount(getTodayAttendanceCount());
+    };
+
+    loadAttendance();
+    const interval = setInterval(loadAttendance, 5000);
+    const handleStorage = () => loadAttendance();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") loadAttendance();
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(ATTENDANCE_UPDATED_EVENT, handleStorage);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(ATTENDANCE_UPDATED_EVENT, handleStorage);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
+  const trendInfo = useMemo(() => {
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().slice(0, 10);
+
+    const yesterdayCount = recentAttendance.filter((entry) =>
+      entry.createdAt.startsWith(yesterdayKey),
+    ).length;
+
+    if (yesterdayCount === 0) {
+      if (todayAttendanceCount === 0) {
+        return { label: "Belum ada data perbandingan", isUp: true };
+      }
+      return { label: `↑ ${todayAttendanceCount} data baru dari kemarin`, isUp: true };
+    }
+
+    const delta = ((todayAttendanceCount - yesterdayCount) / yesterdayCount) * 100;
+    const isUp = delta >= 0;
+    return {
+      label: `${isUp ? "↑" : "↓"} ${Math.abs(delta).toFixed(1)}% dari kemarin`,
+      isUp,
+    };
+  }, [recentAttendance, todayAttendanceCount]);
+
+  const attendanceBars = useMemo(() => {
+    const baseHeights = [40, 60, 85, 50, 95];
+    const barPalette = ["#1CA6A9", "#1CA6A9", "#991b1b", "#991b1b", "#1CA6A9"];
+    const maxBars = baseHeights.length;
+    const activeBars = todayAttendanceCount <= 0
+      ? 0
+      : Math.min(maxBars, Math.max(1, Math.ceil(Math.log10(todayAttendanceCount + 1) * 2)));
+
+    return baseHeights.map((height, index) => ({
+      height,
+      color: barPalette[index],
+      isActive: index < activeBars,
+    }));
+  }, [todayAttendanceCount]);
+
+  const visitorList = useMemo(() => {
+    if (recentAttendance.length === 0) {
+      return (
+        <div className="py-4 text-sm text-slate-400">
+          Belum ada data absensi hari ini.
+        </div>
+      );
+    }
+
+    return recentAttendance.slice(0, 3).map((visitor, i) => (
+      <div
+        key={visitor.id}
+        className={`flex items-start gap-4 py-3.5 ${i < Math.min(recentAttendance.length, 3) - 1 ? "border-b border-slate-100" : ""}`}
+      >
+        <span className="text-[1.1rem] font-bold italic tracking-tight text-slate-300 w-5 pt-0.5">
+          {i + 1}.
+        </span>
+        <div className="flex-1 min-w-0 pr-4">
+          <p className="text-[1.05rem] font-bold text-[#172B4D] leading-tight truncate tracking-tight">
+            {visitor.name}
+          </p>
+          <p className="text-[0.85rem] text-[#6B778C] font-medium leading-relaxed mt-1 line-clamp-2">
+            {visitor.participantLabel || visitor.jabatan}
+          </p>
+        </div>
+        <span className="text-[0.7rem] font-semibold text-slate-300 whitespace-nowrap pt-1">
+          {formatTimeAgo(visitor.createdAt)}
+        </span>
       </div>
-      <span className="text-xs text-slate-300 whitespace-nowrap pt-0.5">{visitor.time}</span>
-    </div>
-  )), []);
+    ));
+  }, [recentAttendance]);
 
   return (
     <>
       <div className="kiosk-viewport">
-        {/* Main App Container - Standardized dimensions */}
         <div id="app" className="transition-all duration-[800ms] flex flex-col" style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}>
-          {/* Header */}
           <header className="flex justify-between items-center mb-4 px-1 pb-3 border-b" style={{ borderColor: "rgba(211, 47, 47, 0.08)" }}>
             <div>
               <h1 className="text-[clamp(1.8rem,4vw,2.8rem)] font-extrabold tracking-[-1.5px] leading-none text-gradient-ink relative">
@@ -91,9 +182,7 @@ export default function Home() {
             </div>
           </header>
 
-          {/* Bento Grid - Fixed Height Fill */}
           <main className="bento-grid grid grid-cols-4 gap-3 flex-1 overflow-hidden" style={{ gridTemplateRows: "repeat(2, 1fr)" }}>
-            {/* Main Entrance Card (Spans 2x2) */}
             <article
               className="bento-card col-span-2 row-span-2 text-white !border-none"
               style={{ background: "linear-gradient(145deg, #009FA9, #007A82)" }}
@@ -145,56 +234,53 @@ export default function Home() {
               </div>
             </article>
 
-            {/* Stats Card */}
             <article className="bento-card col-start-3 row-start-1">
               <div className="relative z-[1] h-full flex flex-col">
                 <span className="tag">Informasi Kunjungan</span>
                 <p style={{ color: "#6B778C" }} className="font-medium">
                   Total Pengunjung Hari Ini
                 </p>
-                <h3 className="stat-value">1,284</h3>
-                <p className="text-sm font-semibold" style={{ color: "#36B37E" }}>
-                  ↑ 12.4% dari minggu lalu
+                <h3 className="stat-value">{todayAttendanceCount.toLocaleString("id-ID")}</h3>
+                <p className="text-sm font-semibold" style={{ color: trendInfo.isUp ? "#36B37E" : "#991b1b" }}>
+                  {trendInfo.label}
                 </p>
                 <div className="mt-auto flex gap-1 h-8 items-end">
-                  <div className="flex-1 h-[40%] bg-[#e0eafc] rounded" />
-                  <div className="flex-1 h-[60%] bg-[#e0eafc] rounded" />
-                  <div className="flex-1 h-[85%] rounded" style={{ background: "#991b1b" }} />
-                  <div className="flex-1 h-[50%] bg-[#e0eafc] rounded" />
-                  <div className="flex-1 h-[95%] rounded" style={{ background: "#009FA9" }} />
+                  {attendanceBars.map((bar, index) => (
+                    <div
+                      key={`bar-${index}`}
+                      className="flex-1 rounded"
+                      style={{
+                        height: `${bar.height}%`,
+                        background: bar.isActive ? bar.color : "#e0eafc",
+                      }}
+                    />
+                  ))}
                 </div>
               </div>
             </article>
 
-            {/* Live Activity Card */}
             <article className="bento-card col-start-4 row-start-1">
-              <div className="relative z-[1] h-full flex flex-col">
-                <span className="tag">
-                  Pengunjung Terbaru
-                </span>
-                <div className="mt-2">
+              <div className="relative z-[1] h-full flex flex-col pt-1">
+                <div className="mb-4">
+                  <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-red-50 text-[0.66rem] font-extrabold uppercase tracking-[0.15em] text-[#991b1b] border border-red-100/50">
+                    Pengunjung Terbaru
+                  </span>
+                </div>
+                <div className="mt-2 flex-1 flex flex-col overflow-hidden gap-1">
                   {visitorList}
                 </div>
               </div>
             </article>
 
-            {/* Ecosystem Card - REDESIGNED */}
-            {/* Ecosystem Card - Clean & Premium */}
             <article className="bento-card ecosystem-card col-span-2 col-start-3 row-start-2 relative overflow-hidden group">
-              {/* Background with Animated Mesh Gradient & Image */}
               <div className="absolute inset-0 z-0 overflow-hidden">
-                {/* Base Color */}
                 <div className="absolute inset-0 bg-[#F4F8FD]" />
-
-                {/* Animated Mesh Gradient */}
                 <div className="absolute inset-0 opacity-[0.6] bg-[size:400%_400%]"
                   style={{
                     backgroundImage: "radial-gradient(at 0% 0%, rgba(0, 159, 169, 0.15) 0px, transparent 50%), radial-gradient(at 100% 0%, rgba(255, 86, 48, 0.1) 0px, transparent 50%), radial-gradient(at 100% 100%, rgba(211, 47, 47, 0.1) 0px, transparent 50%), radial-gradient(at 0% 100%, rgba(54, 179, 126, 0.1) 0px, transparent 50%)",
                     animation: "mesh-gradient 15s ease infinite"
                   }}
                 />
-
-                {/* Pattern Overlay */}
                 <div className="absolute inset-0 opacity-[0.2]"
                   style={{
                     backgroundImage: "radial-gradient(#991b1b 0.8px, transparent 0.8px)",
@@ -202,8 +288,6 @@ export default function Home() {
                     backgroundPosition: "0 0"
                   }}
                 />
-
-                {/* User's Background Image blended */}
                 <div className="absolute right-0 top-0 w-3/4 h-full mix-blend-multiply opacity-15">
                   <Image
                     src="/lontara-bg.png"
@@ -212,13 +296,10 @@ export default function Home() {
                     className="object-cover"
                   />
                 </div>
-
-                {/* Shine Effect */}
                 <div className="absolute inset-0 bg-gradient-to-tr from-white/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
               </div>
 
               <div className="flex flex-row h-full relative z-[1]">
-                {/* Left Content Area */}
                 <div className="flex-1 p-8 flex flex-col justify-center relative">
                   <h4
                     className="text-[2.8rem] font-extrabold tracking-[-2px] mb-4 leading-none relative z-10"
@@ -238,7 +319,7 @@ export default function Home() {
                   </p>
 
                   <a
-                    href="https://lontara.makassar.go.id/"
+                    href="https://lontaraplus.makassarkota.go.id/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="relative overflow-hidden group flex items-center gap-3 pl-6 pr-6 py-3 bg-[#009FA9] text-white rounded-2xl shadow-[0_4px_20px_rgba(0,159,169,0.25)] hover:shadow-[0_8px_30px_rgba(0,159,169,0.35)] hover:-translate-y-0.5 transition-all duration-300 w-fit"
@@ -263,9 +344,7 @@ export default function Home() {
                   </a>
                 </div>
 
-                {/* Right Visual Area */}
                 <div className="w-[42%] relative flex items-center justify-center perspective-[1000px]">
-                  {/* Floating Logo - Minimal & Tilted Right */}
                   <div
                     className="relative w-[140px] h-[140px] flex items-center justify-center transform transition-transform duration-500 group-hover:scale-110 group-hover:rotate-y-[20deg] group-hover:rotate-x-[2deg]"
                     style={{
@@ -274,15 +353,14 @@ export default function Home() {
                     }}
                   >
                     <Image
-                      src="/kominfos.svg"
-                      alt="Logo Lontara"
+                      src="lontara.svg"
+                      alt="Logo Diskominfo"
                       width={130}
                       height={130}
-                      className="drop-shadow-2xl relative z-10"
-                      style={{ filter: "drop-shadow(0 20px 30px rgba(211, 47, 47, 0.25))" }}
+                      className="drop-shadow-2xl relative z-10 rounded-[28px]"
+                      style={{ filter: "drop-shadow(0 20px 30px rgba(12, 107, 196, 0.25))" }}
                     />
 
-                    {/* Subtle Glows */}
                     <div className="absolute -inset-10 z-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700">
                       <div className="absolute top-1/4 right-0 w-24 h-24 bg-[#991b1b]/20 rounded-full blur-2xl animate-pulse" />
                       <div className="absolute bottom-0 left-10 w-32 h-32 bg-[#009FA9]/15 rounded-full blur-3xl animate-pulse" style={{ animationDelay: "1.5s" }} />
@@ -298,4 +376,3 @@ export default function Home() {
     </>
   );
 }
-

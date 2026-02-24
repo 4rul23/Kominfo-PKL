@@ -16,7 +16,7 @@
   --color-glass-border: rgba(255, 255, 255, 0.6);
 
   /* Overridden by next/font in src/app/layout.tsx (variable: --font-main) */
-  --font-main: 'Noto Sans', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  --font-main: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
 
   --shadow-soft: 0 10px 40px -10px rgba(211, 47, 47, 0.08);
   --shadow-hover: 0 30px 60px -12px rgba(211, 47, 47, 0.18);
@@ -51,7 +51,10 @@ html.a11y-large {
   font-size: 18px;
 }
 
-input, textarea, select, button {
+input,
+textarea,
+select,
+button {
   font-family: inherit;
 }
 
@@ -218,20 +221,36 @@ input, textarea, select, button {
   }
 }
 
-@keyframes fade-in-up {
+/* Deprecated animate-fade-in-up and delay classes removed - Migrated to Framer Motion */
+
+.delay-400 {
+  animation-delay: 400ms;
+}
+
+.delay-500 {
+  animation-delay: 500ms;
+}
+
+/* Slower Pulse for Background Blobs */
+@keyframes slow-pulse {
   0% {
-    opacity: 0;
-    transform: translateY(20px);
+    transform: scale(1);
+    opacity: 0.3;
+  }
+
+  50% {
+    transform: scale(1.1);
+    opacity: 0.5;
   }
 
   100% {
-    opacity: 1;
-    transform: translateY(0);
+    transform: scale(1);
+    opacity: 0.3;
   }
 }
 
-.animate-fade-in-up {
-  animation: fade-in-up 0.6s ease-out forwards;
+.animate-slow-pulse {
+  animation: slow-pulse 8s ease-in-out infinite;
 }
 
 /* ========================================
@@ -358,6 +377,163 @@ input, textarea, select, button {
 }
 
 /* ========================================
+   HOME - ATTENDANCE CARDS
+   ======================================== */
+.home-visit-card {
+  gap: 10px;
+}
+
+.home-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.home-card-kicker {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #991b1b;
+}
+
+.home-card-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #ecfeff;
+  color: #0f766e;
+  border: 1px solid #bae6fd;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.home-card-badge--neutral {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+
+.home-metric-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.home-metric-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.home-metric-value {
+  font-size: clamp(2.7rem, 5vw, 3.7rem);
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+}
+
+.home-metric-caption {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.home-mini-chart {
+  margin-top: auto;
+  height: 52px;
+  display: flex;
+  align-items: end;
+  gap: 5px;
+}
+
+.home-mini-bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 6px;
+  background: #e2e8f0;
+  transition: background-color 0.25s ease, opacity 0.25s ease;
+}
+
+.home-mini-bar--active {
+  background: linear-gradient(180deg, #0ea5a4 0%, #0f766e 100%);
+}
+
+.home-empty-state {
+  margin-top: 12px;
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1px dashed #dbeafe;
+  color: #94a3b8;
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.home-attendance-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 0;
+}
+
+.home-attendance-row--line {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.home-attendance-rank {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.home-attendance-main {
+  min-width: 0;
+}
+
+.home-attendance-name {
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-attendance-role {
+  margin-top: 3px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.home-attendance-time {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+/* ========================================
    ECOSYSTEM CARD
    ======================================== */
 .ecosystem-card {
@@ -435,17 +611,17 @@ input, textarea, select, button {
   font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.15);
+  transition: all 0.4s var(--ease-expo);
+  box-shadow: 0 4px 12px rgba(153, 27, 27, 0.15);
   display: inline-flex;
   align-items: center;
   width: fit-content;
 }
 
 .f-pill-btn:hover {
-  background: var(--color-primary-dark);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 16px rgba(211, 47, 47, 0.25);
+  background: var(--color-accent);
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 10px 20px rgba(153, 27, 27, 0.25);
 }
 
 /* ========================================
@@ -757,6 +933,202 @@ body.wizard-active .bento-card * {
 }
 
 /* ========================================
+   REGISTER A11Y (OLDER PNS FRIENDLY)
+   ======================================== */
+.register-a11y-root {
+  font-size: 18px;
+}
+
+.register-a11y-root .register-a11y-input {
+  min-height: 74px;
+  font-size: clamp(2rem, 3vw, 2.8rem);
+}
+
+.register-a11y-root .register-a11y-select {
+  min-height: 74px;
+  font-size: clamp(1.1rem, 1.7vw, 1.35rem);
+}
+
+.register-a11y-root .register-a11y-btn {
+  min-height: 54px;
+  font-size: 1rem;
+}
+
+.register-a11y-root .register-a11y-select option {
+  font-size: 1rem;
+}
+
+/* ========================================
+   REGISTER COMPLETION (CIVIC PREMIUM)
+   ======================================== */
+.completion-shell {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: clamp(12px, 2.5vh, 32px) 0;
+}
+
+.completion-card {
+  width: min(100%, 760px);
+  border-radius: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 32px 70px -48px rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(12px) saturate(120%);
+  padding: clamp(24px, 4.4vw, 46px) clamp(20px, 5.3vw, 56px);
+}
+
+.completion-header {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin-bottom: clamp(8px, 1.6vh, 14px);
+}
+
+.completion-ribbon {
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: #ecfeff;
+  color: #0f766e;
+  border: 1px solid #bae6fd;
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.completion-seal {
+  width: clamp(70px, 9vw, 82px);
+  height: clamp(70px, 9vw, 82px);
+  border-radius: 22px;
+  background: linear-gradient(180deg, #0ea5a4 0%, #0b9a96 100%);
+  color: white;
+  box-shadow: 0 14px 30px -18px rgba(13, 148, 136, 0.6);
+  display: grid;
+  place-items: center;
+}
+
+.completion-name {
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+  max-width: 20ch;
+  margin: 0 auto;
+}
+
+.completion-role {
+  margin-top: clamp(12px, 1.9vh, 18px);
+  color: #475569;
+  font-size: clamp(1rem, 1.55vw, 1.2rem);
+  font-weight: 500;
+  line-height: 1.45;
+  max-width: 54ch;
+  margin-left: auto;
+  margin-right: auto;
+  overflow-wrap: anywhere;
+}
+
+.completion-countdown {
+  margin-top: clamp(16px, 2.5vh, 24px);
+}
+
+.completion-countdown-rail {
+  width: min(100%, 420px);
+  margin-inline: auto;
+  height: 4px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.completion-countdown-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #0ea5a4 0%, #0f766e 100%);
+  animation-name: completion-countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.completion-note {
+  margin-top: 14px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #64748b;
+}
+
+.completion-actions {
+  margin-top: clamp(22px, 3.4vh, 34px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.completion-primary-btn,
+.completion-secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  padding: 13px 26px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all 0.24s var(--ease-expo);
+  border: 1px solid #cbd5e1;
+}
+
+.completion-primary-btn {
+  border-color: #0f172a;
+  background: #0f172a;
+  color: #fff;
+  box-shadow: 0 12px 24px -16px rgba(15, 23, 42, 0.55);
+}
+
+.completion-primary-btn:hover {
+  transform: translateY(-1px);
+  background: #111827;
+  border-color: #111827;
+}
+
+.completion-secondary-btn {
+  background: #fff;
+  color: #334155;
+}
+
+.completion-secondary-btn:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.completion-primary-btn:focus-visible,
+.completion-secondary-btn:focus-visible {
+  outline: 3px solid rgba(14, 165, 164, 0.28);
+  outline-offset: 2px;
+}
+
+@keyframes completion-countdown {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ========================================
    RESPONSIVE - COMPREHENSIVE BREAKPOINTS
    ======================================== */
 
@@ -818,6 +1190,23 @@ body.wizard-active .bento-card * {
     padding: 10px 18px;
     font-size: 0.85rem;
   }
+
+  .home-metric-value {
+    font-size: clamp(2.3rem, 4.5vw, 3rem);
+  }
+
+  .home-attendance-row {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .home-attendance-name {
+    font-size: 0.9rem;
+  }
+
+  .home-attendance-role {
+    font-size: 0.78rem;
+  }
 }
 
 /* Medium screens */
@@ -860,6 +1249,15 @@ body.wizard-active .bento-card * {
 
   .bento-grid>article:last-child {
     grid-column: span 2 !important;
+  }
+
+  .completion-card {
+    width: min(100%, 700px);
+    border-radius: 34px;
+  }
+
+  .completion-name {
+    font-size: clamp(2rem, 5.2vw, 2.9rem);
   }
 }
 
@@ -940,5 +1338,68 @@ body.wizard-active .bento-card * {
   .card-icon svg {
     width: 36px;
     height: 36px;
+  }
+
+  .register-a11y-root .register-a11y-input {
+    font-size: clamp(1.5rem, 6vw, 2rem);
+  }
+
+  .register-a11y-root .register-a11y-select {
+    font-size: 1rem;
+  }
+
+  .home-attendance-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .home-attendance-time {
+    display: none;
+  }
+
+  .completion-card {
+    border-radius: 22px;
+    padding: 24px 18px;
+  }
+
+  .completion-header {
+    gap: 10px;
+  }
+
+  .completion-ribbon {
+    font-size: 0.6rem;
+    padding: 6px 10px;
+  }
+
+  .completion-name {
+    font-size: clamp(1.65rem, 8vw, 2.25rem);
+  }
+
+  .completion-role {
+    font-size: 0.95rem;
+  }
+
+  .completion-actions {
+    flex-direction: column;
+  }
+
+  .completion-primary-btn,
+  .completion-secondary-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .completion-countdown-fill {
+    animation: none !important;
+  }
+
+  .completion-countdown-fill {
+    transform: scaleX(0.45);
+  }
+
+  .completion-primary-btn,
+  .completion-secondary-btn {
+    transition: none !important;
   }
 }

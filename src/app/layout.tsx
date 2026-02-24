@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Noto_Sans } from "next/font/google";
+import { Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
-const notoSans = Noto_Sans({
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   display: "swap",
   weight: ["400", "500", "600", "700"],
@@ -20,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" className={notoSans.variable}>
-      <body className={notoSans.className}>
+    <html lang="id" className={spaceGrotesk.variable}>
+      <body className={spaceGrotesk.className}>
         {/* Fluid Background - EXACT match to original */}
         <div className="fluid-bg">
           <div className="blob blob-1" />
