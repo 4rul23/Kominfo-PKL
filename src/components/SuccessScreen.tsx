@@ -29,7 +29,7 @@ export default function SuccessScreen({ visitorName, unit, photo, onClose }: Suc
                 <div className="bg-[#009FA9] p-5 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-white shadow-md rounded-xl flex items-center justify-center">
-                            <Image src="/lontara.svg" alt="Lontara" width={22} height={22} />
+                            <Image src="/kominfos.svg" alt="Lontara" width={22} height={22} />
                         </div>
                         <div>
                             <p className="text-white/70 text-[0.6rem] font-bold uppercase tracking-widest leading-none mb-1">DISKOMINFO MAKASSAR</p>
@@ -93,7 +93,7 @@ export default function SuccessScreen({ visitorName, unit, photo, onClose }: Suc
                 {/* Bottom Red Accent Decor */}
                 <div className="h-2 w-full flex">
                     <div className="flex-[3] bg-[#009FA9]" />
-                    <div className="flex-1 bg-[#d02b29]" />
+                    <div className="flex-1 bg-[#991b1b]" />
                 </div>
             </div>
 

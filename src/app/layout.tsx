@@ -5,7 +5,7 @@ import "./globals.css";
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   display: "swap",
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-main",
 });
 
@@ -21,10 +21,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" className={spaceGrotesk.variable}>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      </head>
       <body className={spaceGrotesk.className}>
         {/* Fluid Background - EXACT match to original */}
         <div className="fluid-bg">
