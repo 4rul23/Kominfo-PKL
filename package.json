@@ -3,12 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
+    "db:seed:attendance": "node scripts/seed-attendance-db.mjs"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.2",
     "framer-motion": "^12.34.3",
     "next": "16.1.1",
     "qrcode.react": "^4.2.0",
@@ -22,6 +28,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
+    "prisma": "^6.19.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

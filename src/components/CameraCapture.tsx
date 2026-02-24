@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 interface CameraCaptureProps {
     onCapture: (image: string) => void;
@@ -9,7 +9,6 @@ interface CameraCaptureProps {
 }
 
 export default function CameraCapture({ onCapture, onRetake, initialImage }: CameraCaptureProps) {
-    const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
 
@@ -23,7 +22,6 @@ export default function CameraCapture({ onCapture, onRetake, initialImage }: Cam
                 video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
             });
             streamRef.current = stream;
-            setCameraStream(stream);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
             }
@@ -38,7 +36,6 @@ export default function CameraCapture({ onCapture, onRetake, initialImage }: Cam
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
         }
-        setCameraStream(null);
     };
 
     const takeSelfie = () => {

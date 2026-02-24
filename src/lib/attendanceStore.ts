@@ -1,120 +1,120 @@
-"use client";
-
 import { ATTENDANCE_SOURCE } from "@/lib/meetingParticipants";
+import {
+    buildTodayParticipantQuotaMap,
+    buildTodayParticipantRoleCountMap,
+    createAttendanceEntry,
+    getTodayAttendanceCountFromEntries,
+    sanitizeAttendanceEntries,
+    type AttendanceEntry,
+    type AttendanceFieldValidationResult,
+    type AttendanceNameValidationResult,
+    type ParticipantQuotaStatus,
+    validateAttendanceName,
+    validateAttendanceNip,
+    validateAttendancePhone,
+} from "@/lib/attendanceCore";
 
-export interface AttendanceEntry {
-    id: string;
-    name: string;
-    jabatan: string;
-    instansi: string;
-    participantId: string;
-    participantLabel: string;
-    source: typeof ATTENDANCE_SOURCE;
-    createdAt: string; // ISO timestamp
+export { type AttendanceEntry, type ParticipantQuotaStatus };
+export { type AttendanceFieldValidationResult, type AttendanceNameValidationResult };
+export { validateAttendanceName, validateAttendanceNip, validateAttendancePhone };
+
+export const ATTENDANCE_UPDATED_EVENT = "attendance-storage-updated";
+
+interface AttendanceApiResponse {
+    entries?: AttendanceEntry[];
+    entry?: AttendanceEntry;
+    message?: string;
 }
 
-const STORAGE_KEY = "diskominfo_attendance_temp_json";
-export const ATTENDANCE_UPDATED_EVENT = "attendance-storage-updated";
+export interface AttendanceSnapshot {
+    entries: AttendanceEntry[];
+    todayCount: number;
+    quotaMap: Record<string, ParticipantQuotaStatus>;
+    roleCountMap: Record<string, Record<string, number>>;
+}
 
 function notifyAttendanceUpdated(): void {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new CustomEvent(ATTENDANCE_UPDATED_EVENT));
 }
 
-function normalizeText(value: unknown, fallback = "-"): string {
-    if (typeof value !== "string") return fallback;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : fallback;
+async function fetchAttendance(path = "/api/attendance", init?: RequestInit): Promise<AttendanceApiResponse> {
+    const response = await fetch(path, {
+        ...init,
+        headers: {
+            "Content-Type": "application/json",
+            ...(init?.headers ?? {}),
+        },
+        cache: "no-store",
+    });
+
+    const data = (await response.json().catch(() => ({}))) as AttendanceApiResponse;
+    if (!response.ok) {
+        throw new Error(data.message || "Gagal memproses data absensi.");
+    }
+    return data;
 }
 
-function normalizeCreatedAt(value: unknown): string {
-    if (typeof value !== "string") return new Date().toISOString();
-    return value.trim().length > 0 ? value : new Date().toISOString();
+export async function getAttendanceEntries(): Promise<AttendanceEntry[]> {
+    const data = await fetchAttendance();
+    return sanitizeAttendanceEntries(data.entries ?? []);
 }
 
-function normalizeSource(value: unknown): typeof ATTENDANCE_SOURCE {
-    return value === ATTENDANCE_SOURCE ? ATTENDANCE_SOURCE : ATTENDANCE_SOURCE;
-}
-
-function normalizeId(value: unknown): string {
-    if (typeof value === "string" && value.trim().length > 0) return value.trim();
-    return crypto.randomUUID();
-}
-
-function normalizeEntry(value: unknown): AttendanceEntry | null {
-    if (!value || typeof value !== "object") return null;
-
-    const raw = value as Partial<AttendanceEntry>;
-    const name = normalizeText(raw.name, "");
-    if (!name) return null;
-
-    const jabatan = normalizeText(raw.jabatan, normalizeText(raw.participantLabel, "-"));
-    const participantLabel = normalizeText(raw.participantLabel, jabatan);
-
+export async function getAttendanceSnapshot(
+    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+): Promise<AttendanceSnapshot> {
+    const entries = await getAttendanceEntries();
     return {
-        id: normalizeId(raw.id),
-        name,
-        jabatan,
-        instansi: normalizeText(raw.instansi, "-"),
-        participantId: normalizeText(raw.participantId, "-"),
-        participantLabel,
-        source: normalizeSource(raw.source),
-        createdAt: normalizeCreatedAt(raw.createdAt),
+        entries,
+        todayCount: getTodayAttendanceCountFromEntries(entries),
+        quotaMap: buildTodayParticipantQuotaMap(entries, source),
+        roleCountMap: buildTodayParticipantRoleCountMap(entries, source),
     };
 }
 
-export function getAttendanceEntries(): AttendanceEntry[] {
-    if (typeof window === "undefined") return [];
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (!Array.isArray(parsed)) return [];
-        return parsed
-            .map((entry) => normalizeEntry(entry))
-            .filter((entry): entry is AttendanceEntry => entry !== null)
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    } catch {
-        return [];
-    }
-}
+export async function addAttendanceEntry(input: Omit<AttendanceEntry, "id" | "createdAt">): Promise<AttendanceEntry> {
+    const data = await fetchAttendance("/api/attendance", {
+        method: "POST",
+        body: JSON.stringify(input),
+    });
 
-export function addAttendanceEntry(input: Omit<AttendanceEntry, "id" | "createdAt">): AttendanceEntry {
-    const normalizedName = normalizeText(input.name, "");
-    if (!normalizedName) {
-        throw new Error("Nama peserta wajib diisi.");
+    if (!data.entry) {
+        throw new Error("Data absensi tidak valid.");
     }
 
-    const entry: AttendanceEntry = {
-        id: crypto.randomUUID(),
-        name: normalizedName,
-        jabatan: normalizeText(input.jabatan, "-"),
-        instansi: normalizeText(input.instansi, "-"),
-        participantId: normalizeText(input.participantId, "-"),
-        participantLabel: normalizeText(input.participantLabel, "-"),
-        source: normalizeSource(input.source),
-        createdAt: new Date().toISOString(),
-    };
-
-    const all = getAttendanceEntries();
-    all.unshift(entry);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
     notifyAttendanceUpdated();
-    return entry;
+    return data.entry;
 }
 
-export function clearAttendanceEntries(): void {
-    if (typeof window === "undefined") return;
-    localStorage.removeItem(STORAGE_KEY);
+export async function clearAttendanceEntries(): Promise<void> {
+    await fetchAttendance("/api/attendance", { method: "DELETE" });
     notifyAttendanceUpdated();
 }
 
-export function exportAttendanceAsJson(pretty = true): string {
-    const all = getAttendanceEntries();
+export async function exportAttendanceAsJson(pretty = true): Promise<string> {
+    const all = await getAttendanceEntries();
     return JSON.stringify(all, null, pretty ? 2 : 0);
 }
 
-export function getTodayAttendanceCount(): number {
-    const today = new Date().toISOString().split("T")[0];
-    return getAttendanceEntries().filter((x) => x.createdAt.startsWith(today)).length;
+export async function getTodayAttendanceCount(): Promise<number> {
+    const snapshot = await getAttendanceSnapshot();
+    return snapshot.todayCount;
 }
+
+export async function getTodayParticipantQuotaMap(
+    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+): Promise<Record<string, ParticipantQuotaStatus>> {
+    const snapshot = await getAttendanceSnapshot(source);
+    return snapshot.quotaMap;
+}
+
+export async function getTodayParticipantRoleCountMap(
+    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+): Promise<Record<string, Record<string, number>>> {
+    const snapshot = await getAttendanceSnapshot(source);
+    return snapshot.roleCountMap;
+}
+
+export const __attendanceStoreInternals = {
+    createAttendanceEntry,
+};

@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Attendance {
+  id               String   @id
+  name             String
+  jabatan          String
+  instansi         String
+  phoneNumber      String
+  nip              String
+  participantId    String
+  participantLabel String
+  participantRole  String
+  selfieDataUrl    String?
+  source           String
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([source, createdAt])
+  @@index([participantId, createdAt])
+  @@map("attendances")
+}
