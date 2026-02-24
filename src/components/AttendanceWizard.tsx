@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
-import CameraCapture from "@/components/CameraCapture";
 import {
     ATTENDANCE_UPDATED_EVENT,
     addAttendanceEntry,
@@ -20,7 +19,7 @@ import {
     getParticipantRoleOptions,
 } from "@/lib/meetingParticipants";
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 4;
 const SUCCESS_STEP = TOTAL_STEPS + 1;
 const AUTO_RESET_MS = 4000;
 
@@ -45,7 +44,6 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
     const [submittedEntry, setSubmittedEntry] = useState<AttendanceEntry | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [isParticipantPanelOpen, setIsParticipantPanelOpen] = useState(false);
-    const [isSelfieCameraOpen, setIsSelfieCameraOpen] = useState(false);
     const [participantQuotaMap, setParticipantQuotaMap] = useState<Record<string, ParticipantQuotaStatus>>({});
     const [participantRoleCountMap, setParticipantRoleCountMap] = useState<Record<string, Record<string, number>>>({});
     const [data, setData] = useState<WizardData>({
@@ -109,9 +107,8 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         (step === 1 && isNameValid) ||
         (step === 2 && phoneValidation.isValid) ||
         (step === 3 && nipValidation.isValid) ||
-        (step === 4) ||
-        (step === 5 && isParticipantValid);
-    const showParticipantResults = step === 5 && isParticipantPanelOpen;
+        (step === 4 && isParticipantValid);
+    const showParticipantResults = step === 4 && isParticipantPanelOpen;
     const isSuccessStep = step === SUCCESS_STEP;
 
     useEffect(() => {
@@ -121,14 +118,14 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
             phoneInputRef.current?.focus();
         } else if (step === 3) {
             nipInputRef.current?.focus();
-        } else if (step === 5) {
+        } else if (step === 4) {
             comboboxRef.current?.focus();
             setIsParticipantPanelOpen(false);
         }
     }, [step]);
 
     useEffect(() => {
-        if (step !== 5 || !isParticipantPanelOpen) return undefined;
+        if (step !== 4 || !isParticipantPanelOpen) return undefined;
 
         const handleOutsidePointerDown = (event: PointerEvent) => {
             const target = event.target as Node | null;
@@ -197,7 +194,6 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         });
         setSearchQuery("");
         setIsParticipantPanelOpen(false);
-        setIsSelfieCameraOpen(false);
         setErrorMessage("");
         setSubmittedEntry(null);
         setIsSubmitting(false);
@@ -237,7 +233,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                 setErrorMessage(nipValidation.message);
                 return;
             }
-            if (step === 5) {
+            if (step === 4) {
                 if (selectedParticipantQuota?.isFull) {
                     setErrorMessage("Kuota untuk jabatan / unit ini sudah penuh. Pilih unit lain.");
                     return;
@@ -267,22 +263,6 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
 
         setErrorMessage("");
         setData((prev) => ({ ...prev, participantRole: role }));
-    }
-
-    function handleSelfieCapture(imageDataUrl: string) {
-        setErrorMessage("");
-        setData((prev) => ({ ...prev, selfieDataUrl: imageDataUrl }));
-        setIsSelfieCameraOpen(false);
-    }
-
-    function handleSelfieRetake() {
-        setData((prev) => ({ ...prev, selfieDataUrl: null }));
-        setIsSelfieCameraOpen(true);
-    }
-
-    function handleSelfieRemove() {
-        setData((prev) => ({ ...prev, selfieDataUrl: null }));
-        setIsSelfieCameraOpen(false);
     }
 
     async function handleSubmit() {
@@ -414,7 +394,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: -15, scale: 0.98 }}
                             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                            className={`w-full min-h-0 flex flex-col items-center relative ${isSuccessStep ? "max-w-5xl justify-center" : "max-w-4xl"} ${step === 5 && showParticipantResults ? "justify-start h-full" : "justify-center"}`}
+                            className={`w-full min-h-0 flex flex-col items-center relative ${isSuccessStep ? "max-w-5xl justify-center" : "max-w-4xl"} ${step === 4 && showParticipantResults ? "justify-start h-full" : "justify-center"}`}
                         >
                             {step === 1 && (
                                 <div className="w-full max-w-3xl mx-auto space-y-5">
@@ -511,73 +491,6 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                             )}
 
                             {step === 4 && (
-                                <div className="w-full max-w-3xl mx-auto space-y-5">
-                                    <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">
-                                        Swafoto Peserta
-                                    </h2>
-                                    <p className="text-[#505F79] text-lg font-medium">
-                                        Ambil foto langsung dari kamera komputer (opsional).
-                                    </p>
-
-                                    <div className="pt-4 flex flex-col items-center gap-3">
-                                        {isSelfieCameraOpen ? (
-                                            <>
-                                                <CameraCapture
-                                                    initialImage={null}
-                                                    onCapture={handleSelfieCapture}
-                                                    onRetake={handleSelfieRetake}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setIsSelfieCameraOpen(false)}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:text-[#172B4D] hover:border-slate-300 transition-colors"
-                                                >
-                                                    Tutup Kamera
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setErrorMessage("");
-                                                        setIsSelfieCameraOpen(true);
-                                                    }}
-                                                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-[#172B4D] hover:border-[#009FA9]/40 hover:text-[#007A82] transition-colors"
-                                                >
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                                                        <circle cx="12" cy="13" r="4" />
-                                                    </svg>
-                                                    {data.selfieDataUrl ? "Ambil Ulang Swafoto" : "Buka Kamera untuk Swafoto"}
-                                                </button>
-                                                {data.selfieDataUrl && (
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-20 h-20 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                                                            <Image
-                                                                src={data.selfieDataUrl}
-                                                                alt="Preview swafoto"
-                                                                width={80}
-                                                                height={80}
-                                                                className="w-full h-full object-cover"
-                                                            />
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleSelfieRemove}
-                                                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:text-rose-600 hover:border-rose-200 transition-colors"
-                                                        >
-                                                            Hapus Foto
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {step === 5 && (
                                 <motion.div
                                     ref={participantStepRef}
                                     layout
