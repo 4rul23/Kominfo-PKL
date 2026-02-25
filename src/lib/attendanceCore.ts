@@ -86,23 +86,6 @@ function normalizeSelfieDataUrl(value: unknown): string | null {
     return trimmed;
 }
 
-function isValidDateYYYYMMDD(value: string): boolean {
-    if (!/^\d{8}$/.test(value)) return false;
-    const year = Number(value.slice(0, 4));
-    const month = Number(value.slice(4, 6));
-    const day = Number(value.slice(6, 8));
-    if (year < 1940 || year > 2100) return false;
-    if (month < 1 || month > 12) return false;
-    if (day < 1 || day > 31) return false;
-
-    const date = new Date(Date.UTC(year, month - 1, day));
-    return (
-        date.getUTCFullYear() === year
-        && date.getUTCMonth() === month - 1
-        && date.getUTCDate() === day
-    );
-}
-
 export function getTodayKey(): string {
     return new Date().toISOString().slice(0, 10);
 }
@@ -141,10 +124,10 @@ export function validateAttendanceName(name: string): AttendanceNameValidationRe
     }
 
     const compact = normalizedName.replace(/[\s'`.\-]+/g, "");
-    if (compact.length < 5) {
+    if (compact.length < 4) {
         return {
             isValid: false,
-            message: "Nama minimal 5 huruf.",
+            message: "Nama minimal 4 huruf.",
             normalizedName,
         };
     }
@@ -228,27 +211,18 @@ export function validateAttendanceNip(nip: string): AttendanceFieldValidationRes
         };
     }
 
-    if (!/^\d{18}$/.test(normalizedNip)) {
+    if (normalizedNip.length < 8 || normalizedNip.length > 20) {
         return {
             isValid: false,
-            message: "Format NIP tidak valid. NIP harus 18 digit angka.",
+            message: "Format NIP/NIK tidak valid. Gunakan 8-20 digit angka.",
             normalizedValue: normalizedNip,
         };
     }
 
-    if (/^(\d)\1{17}$/.test(normalizedNip)) {
+    if (/^(\d)\1{7,}$/.test(normalizedNip)) {
         return {
             isValid: false,
-            message: "NIP tidak valid. Hindari angka berulang penuh.",
-            normalizedValue: normalizedNip,
-        };
-    }
-
-    const birthDateSegment = normalizedNip.slice(0, 8);
-    if (!isValidDateYYYYMMDD(birthDateSegment)) {
-        return {
-            isValid: false,
-            message: "NIP tidak valid. 8 digit awal harus format tanggal yang valid.",
+            message: "NIP/NIK tidak valid. Hindari angka berulang penuh.",
             normalizedValue: normalizedNip,
         };
     }
