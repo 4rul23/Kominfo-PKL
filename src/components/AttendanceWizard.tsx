@@ -22,7 +22,7 @@ import {
 const TOTAL_STEPS = 4;
 const SUCCESS_STEP = TOTAL_STEPS + 1;
 const AUTO_RESET_MS = 4000;
-const NIP_MAX_LENGTH = 18;
+const NIP_MAX_LENGTH = 20;
 const PHONE_MAX_LENGTH = 16;
 
 function digitsOnly(value: string): string {
@@ -474,7 +474,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                         NIP Peserta
                                     </h2>
                                     <p className="text-[#505F79] text-lg font-medium">
-                                        Masukkan NIP pegawai (18 digit angka).
+                                        Masukkan NIP/NIK peserta (angka).
                                     </p>
 
                                     <input
@@ -492,7 +492,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                         onKeyDown={(e) => {
                                             if (e.key === "Enter" && nipValidation.isValid) handleNext();
                                         }}
-                                        placeholder="Masukkan NIP (angka)"
+                                        placeholder="Masukkan NIP/NIK (angka)"
                                         className="w-full max-w-3xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 focus:border-[#009FA9] py-3 transition-colors font-medium mt-4 focus:outline-none register-a11y-input"
                                     />
                                     {data.nip.trim().length > 0 && !nipValidation.isValid && (
