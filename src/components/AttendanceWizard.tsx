@@ -22,6 +22,12 @@ import {
 const TOTAL_STEPS = 4;
 const SUCCESS_STEP = TOTAL_STEPS + 1;
 const AUTO_RESET_MS = 4000;
+const NIP_MAX_LENGTH = 18;
+const PHONE_MAX_LENGTH = 16;
+
+function digitsOnly(value: string): string {
+    return value.replace(/\D+/g, "");
+}
 
 interface AttendanceWizardProps {
     onClose: () => void;
@@ -439,10 +445,14 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                     <input
                                         ref={phoneInputRef}
                                         type="tel"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={PHONE_MAX_LENGTH}
                                         value={data.phoneNumber}
                                         onChange={(e) => {
                                             setErrorMessage("");
-                                            setData((prev) => ({ ...prev, phoneNumber: e.target.value }));
+                                            const normalized = digitsOnly(e.target.value);
+                                            setData((prev) => ({ ...prev, phoneNumber: normalized }));
                                         }}
                                         onKeyDown={(e) => {
                                             if (e.key === "Enter" && phoneValidation.isValid) handleNext();
@@ -471,10 +481,13 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                                         ref={nipInputRef}
                                         type="text"
                                         inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={NIP_MAX_LENGTH}
                                         value={data.nip}
                                         onChange={(e) => {
                                             setErrorMessage("");
-                                            setData((prev) => ({ ...prev, nip: e.target.value }));
+                                            const normalized = digitsOnly(e.target.value).slice(0, NIP_MAX_LENGTH);
+                                            setData((prev) => ({ ...prev, nip: normalized }));
                                         }}
                                         onKeyDown={(e) => {
                                             if (e.key === "Enter" && nipValidation.isValid) handleNext();
