@@ -124,14 +124,6 @@ export function validateAttendanceName(name: string): AttendanceNameValidationRe
         };
     }
 
-    if (normalizedName.length < 3) {
-        return {
-            isValid: false,
-            message: "Nama terlalu singkat. Gunakan nama asli peserta.",
-            normalizedName,
-        };
-    }
-
     if (normalizedName.length > 80) {
         return {
             isValid: false,
@@ -148,7 +140,16 @@ export function validateAttendanceName(name: string): AttendanceNameValidationRe
         };
     }
 
-    if (/(.)\1{3,}/i.test(normalizedName)) {
+    const compact = normalizedName.replace(/[\s'`.\-]+/g, "");
+    if (compact.length < 5) {
+        return {
+            isValid: false,
+            message: "Nama minimal 5 huruf.",
+            normalizedName,
+        };
+    }
+
+    if (/(.)\1{4,}/i.test(compact)) {
         return {
             isValid: false,
             message: "Nama terdeteksi tidak valid. Hindari karakter berulang.",
@@ -156,42 +157,23 @@ export function validateAttendanceName(name: string): AttendanceNameValidationRe
         };
     }
 
-    const compact = normalizedName.replace(/[\s'`.\-]+/g, "");
-    if (compact.length < 3) {
+    const lowercaseCompact = compact.toLocaleLowerCase("id-ID");
+    const obviousDummyNames = new Set([
+        "asd",
+        "asdf",
+        "asdalks",
+        "qwe",
+        "qwerty",
+        "zxc",
+        "abc",
+        "test",
+        "testing",
+    ]);
+    const looksLikeKeyboardMash = /^(asd|qwe|zxc)[a-z]*$/i.test(lowercaseCompact);
+    if (obviousDummyNames.has(lowercaseCompact) || looksLikeKeyboardMash) {
         return {
             isValid: false,
-            message: "Nama tidak valid. Gunakan nama yang jelas.",
-            normalizedName,
-        };
-    }
-
-    if (/[bcdfghjklmnpqrstvwxyz]{5,}/i.test(compact)) {
-        return {
-            isValid: false,
-            message: "Nama terlihat seperti teks acak. Gunakan nama peserta asli.",
-            normalizedName,
-        };
-    }
-
-    const words = normalizedName
-        .split(" ")
-        .map((word) => word.replace(/[^A-Za-zÀ-ÿ]/g, ""))
-        .filter(Boolean);
-    const meaningfulWords = words.filter((word) => word.length >= 2);
-    if (meaningfulWords.length < 2 && compact.length < 6) {
-        return {
-            isValid: false,
-            message: "Gunakan nama lengkap peserta (minimal 2 kata).",
-            normalizedName,
-        };
-    }
-
-    const vowelCount = (compact.match(/[aeiou]/gi) ?? []).length;
-    const vowelRatio = vowelCount / compact.length;
-    if (vowelRatio < 0.2 || vowelRatio > 0.85) {
-        return {
-            isValid: false,
-            message: "Nama terdeteksi tidak natural. Cek kembali input nama peserta.",
+            message: "Nama terlihat seperti teks acak. Gunakan nama asli peserta.",
             normalizedName,
         };
     }
@@ -349,6 +331,14 @@ export function createAttendanceEntry(
 
     if (sourceEntriesToday.length >= LONTARA_EXPECTED_PARTICIPANTS) {
         throw new Error(`Kuota total peserta hari ini sudah penuh (${LONTARA_EXPECTED_PARTICIPANTS} peserta).`);
+    }
+
+    const normalizedNip = nipValidation.normalizedValue;
+    const isDuplicateNipToday = sourceEntriesToday.some(
+        (entry) => normalizeDigits(entry.nip) === normalizedNip,
+    );
+    if (isDuplicateNipToday) {
+        throw new Error("NIP ini sudah tercatat hari ini.");
     }
 
     const participantEntriesToday = sourceEntriesToday.filter(
