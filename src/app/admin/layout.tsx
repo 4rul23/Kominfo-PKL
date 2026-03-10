@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { authenticateStaff, getStaffUserById, seedDefaultStaffUsers, type StaffRole, type StaffUser } from "@/lib/staffStore";
+import { seedDefaultStaffUsers } from "@/lib/staffStore";
+import { type StaffRole, type StaffUser } from "@/lib/staffStore";
 import { clearStaffSession, getStaffSession, setStaffSession } from "@/lib/staffSession";
 import { seedDefaultOrgStructure } from "@/lib/orgUnitStore";
 import ToastCenter from "@/components/ToastCenter";
@@ -42,9 +43,10 @@ function isAllowedPath(pathname: string, role: StaffRole): boolean {
     if (pathname.startsWith("/admin/directory")) return allow(["admin", "operator", "receptionist"]);
     if (pathname.startsWith("/admin/org-units")) return allow(["admin"]);
     if (pathname.startsWith("/admin/users")) return allow(["admin"]);
+    if (pathname.startsWith("/admin/events")) return allow(["admin"]);
     if (pathname.startsWith("/admin/notifications")) return allow(["admin", "operator", "receptionist"]);
     if (pathname.startsWith("/admin/visitors")) return allow(["admin", "receptionist"]);
-    if (pathname.startsWith("/admin/surat")) return allow(["admin", "receptionist"]);
+    if (pathname.startsWith("/admin/surat")) return allow(["admin", "receptionist", "operator"]);
     if (pathname.startsWith("/admin/cases")) return allow(["admin", "operator", "receptionist"]);
     // Fallback: admin only
     return allow(["admin"]);
@@ -57,35 +59,86 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const [currentUser, setCurrentUser] = useState<StaffUser | null>(null);
     const pathname = usePathname();
 
-    useEffect(() => {
-        // Ensure dummy master data exists
-        seedDefaultOrgStructure();
-        seedDefaultStaffUsers();
-
-        const session = getStaffSession();
-        if (!session) return;
-        const u = getStaffUserById(session.userId);
-        if (u) setCurrentUser(u);
-    }, []);
-
-    const handleLogin = (e: React.FormEvent) => {
-        e.preventDefault();
-        const u = authenticateStaff(username.trim(), password);
-        if (!u) {
-            setError("Username atau password salah");
-            setPassword("");
+    const loadSessionUser = async () => {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = (await response.json().catch(() => ({}))) as {
+            user?: {
+                id: string;
+                username: string;
+                name: string;
+                nipNik: string;
+                instansiLabel: "Diskominfo Makassar" | "UPT Warroom";
+                role: StaffRole;
+                orgUnitId: string | null;
+                whatsapp: string;
+                isActive: boolean;
+            } | null;
+        };
+        if (!response.ok || !data.user) {
+            setCurrentUser(null);
+            clearStaffSession();
             return;
         }
-        setStaffSession({ userId: u.id, role: u.role });
-        setCurrentUser(u);
-        setError("");
-        // Navigate to the most relevant landing page per role (dummy UX).
-        if (u.role === "operator") window.location.assign("/admin/inbox");
-        else if (u.role === "receptionist") window.location.assign("/admin/intake");
-        else window.location.assign("/admin");
+
+        const mappedUser: StaffUser = {
+            id: data.user.id,
+            username: data.user.username,
+            name: data.user.name,
+            nipNik: data.user.nipNik,
+            instansi: data.user.instansiLabel,
+            role: data.user.role,
+            orgUnitId: data.user.orgUnitId,
+            whatsapp: data.user.whatsapp,
+            isActive: data.user.isActive,
+            password: "",
+            timestamp: "",
+            date: "",
+        };
+
+        setStaffSession({ userId: mappedUser.id, role: mappedUser.role });
+        setCurrentUser(mappedUser);
     };
 
-    const handleLogout = () => {
+    useEffect(() => {
+        void seedDefaultOrgStructure();
+        void seedDefaultStaffUsers();
+        void loadSessionUser();
+    }, []);
+
+    const handleLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const response = await fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: username.trim(), password }),
+            });
+            const data = (await response.json().catch(() => ({}))) as { message?: string };
+
+            if (!response.ok) {
+                setError(data.message || "Username atau password salah");
+                setPassword("");
+                return;
+            }
+
+            await loadSessionUser();
+            setError("");
+
+            const role = getStaffSession()?.role;
+            if (role === "operator") window.location.assign("/admin/inbox");
+            else if (role === "receptionist") window.location.assign("/admin/intake");
+            else window.location.assign("/admin");
+        } catch {
+            setError("Gagal login. Coba lagi.");
+        }
+    };
+
+    const handleLogout = async () => {
+        try {
+            await fetch("/api/auth/logout", { method: "POST" });
+        } catch {
+            setError("Gagal logout dari server. Sesi lokal tetap dihapus.");
+        }
         clearStaffSession();
         setCurrentUser(null);
         setUsername("");
@@ -189,11 +242,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         { name: "Notifikasi", href: "/admin/notifications", icon: LayoutIcons.bell },
         ...(currentUser.role === "admin" || currentUser.role === "receptionist" ? [
             { name: "Pengunjung", href: "/admin/visitors", icon: LayoutIcons.users },
+        ] : []),
+        ...(currentUser.role === "admin" || currentUser.role === "receptionist" || currentUser.role === "operator" ? [
             { name: "Surat Elektronik", href: "/admin/surat", icon: LayoutIcons.mail },
         ] : []),
         ...(currentUser.role === "admin" ? [
             { name: "Org Units", href: "/admin/org-units", icon: LayoutIcons.settings },
             { name: "Users", href: "/admin/users", icon: LayoutIcons.users },
+            { name: "Events", href: "/admin/events", icon: LayoutIcons.bell },
         ] : []),
     ];
 

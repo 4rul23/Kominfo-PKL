@@ -1,4 +1,5 @@
 import { ATTENDANCE_SOURCE } from "@/lib/meetingParticipants";
+import { normalizeAttendanceEventCode } from "@/lib/attendanceEventUtils";
 import {
     buildTodayParticipantQuotaMap,
     buildTodayParticipantRoleCountMap,
@@ -23,6 +24,28 @@ export const ATTENDANCE_UPDATED_EVENT = "attendance-storage-updated";
 interface AttendanceApiResponse {
     entries?: AttendanceEntry[];
     entry?: AttendanceEntry;
+    token?: string;
+    expiresAt?: string;
+    message?: string;
+}
+
+export interface AttendanceEvent {
+    id: string;
+    code: string;
+    name: string;
+    eventDate: string | null;
+    isActive: boolean;
+}
+
+interface AttendanceEventsApiResponse {
+    events?: AttendanceEvent[];
+    activeEvent?: AttendanceEvent | null;
+    event?: AttendanceEvent;
+    token?: string;
+    expiresAt?: string;
+    eventCode?: string;
+    registerPath?: string;
+    dashboardPath?: string;
     message?: string;
 }
 
@@ -55,15 +78,35 @@ async function fetchAttendance(path = "/api/attendance", init?: RequestInit): Pr
     return data;
 }
 
-export async function getAttendanceEntries(): Promise<AttendanceEntry[]> {
-    const data = await fetchAttendance();
+async function fetchAttendanceEvents(path = "/api/events", init?: RequestInit): Promise<AttendanceEventsApiResponse> {
+    const response = await fetch(path, {
+        ...init,
+        headers: {
+            "Content-Type": "application/json",
+            ...(init?.headers ?? {}),
+        },
+        cache: "no-store",
+    });
+
+    const data = (await response.json().catch(() => ({}))) as AttendanceEventsApiResponse;
+    if (!response.ok) {
+        throw new Error(data.message || "Gagal memproses data event.");
+    }
+    return data;
+}
+
+export async function getAttendanceEntries(
+    source: string = ATTENDANCE_SOURCE,
+): Promise<AttendanceEntry[]> {
+    const eventCode = normalizeAttendanceEventCode(source || ATTENDANCE_SOURCE);
+    const data = await fetchAttendance(`/api/events/${encodeURIComponent(eventCode)}/attendance`);
     return sanitizeAttendanceEntries(data.entries ?? []);
 }
 
 export async function getAttendanceSnapshot(
-    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+    source: string = ATTENDANCE_SOURCE,
 ): Promise<AttendanceSnapshot> {
-    const entries = await getAttendanceEntries();
+    const entries = await getAttendanceEntries(source);
     return {
         entries,
         todayCount: getTodayAttendanceCountFromEntries(entries),
@@ -73,9 +116,10 @@ export async function getAttendanceSnapshot(
 }
 
 export async function addAttendanceEntry(input: Omit<AttendanceEntry, "id" | "createdAt">): Promise<AttendanceEntry> {
-    const data = await fetchAttendance("/api/attendance", {
+    const eventCode = normalizeAttendanceEventCode(input.source || ATTENDANCE_SOURCE);
+    const data = await fetchAttendance(`/api/events/${encodeURIComponent(eventCode)}/attendance`, {
         method: "POST",
-        body: JSON.stringify(input),
+        body: JSON.stringify({ ...input, source: eventCode }),
     });
 
     if (!data.entry) {
@@ -86,30 +130,141 @@ export async function addAttendanceEntry(input: Omit<AttendanceEntry, "id" | "cr
     return data.entry;
 }
 
-export async function clearAttendanceEntries(): Promise<void> {
-    await fetchAttendance("/api/attendance", { method: "DELETE" });
+export async function getAttendanceEvents(): Promise<AttendanceEvent[]> {
+    const data = await fetchAttendanceEvents("/api/events");
+    return Array.isArray(data.events) ? data.events : [];
+}
+
+export async function getActiveAttendanceEvent(): Promise<AttendanceEvent | null> {
+    const data = await fetchAttendanceEvents("/api/events");
+    return data.activeEvent ?? null;
+}
+
+export async function createAttendanceEvent(input: {
+    code: string;
+    name: string;
+    eventDate?: string | null;
+    isActive?: boolean;
+}): Promise<AttendanceEvent> {
+    const data = await fetchAttendanceEvents("/api/events", {
+        method: "POST",
+        body: JSON.stringify(input),
+    });
+    const event = data.event;
+    if (!event) {
+        throw new Error("Gagal membuat event.");
+    }
+    return event;
+}
+
+export async function updateAttendanceEvent(input: {
+    id: string;
+    code?: string;
+    name?: string;
+    eventDate?: string | null;
+    isActive?: boolean;
+}): Promise<AttendanceEvent> {
+    const preferredCode = normalizeAttendanceEventCode(input.code || "");
+    let eventCode = preferredCode;
+    if (!eventCode && input.id) {
+        const events = await getAttendanceEvents();
+        const matched = events.find((item) => item.id === input.id);
+        eventCode = normalizeAttendanceEventCode(matched?.code || "");
+    }
+    if (!eventCode) {
+        throw new Error("Event code tidak ditemukan untuk update event.");
+    }
+
+    const data = await fetchAttendanceEvents(`/api/events/${encodeURIComponent(eventCode)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+            name: input.name,
+            eventDate: input.eventDate,
+            isActive: input.isActive,
+        }),
+    });
+    const event = data.event;
+    if (!event) {
+        throw new Error("Gagal memperbarui event.");
+    }
+    return event;
+}
+
+export async function createAttendanceEventRegisterLink(input: {
+    code: string;
+    expiresInHours?: number;
+}): Promise<{
+    token: string;
+    expiresAt: string;
+    eventCode: string;
+    registerPath: string;
+    dashboardPath: string;
+}> {
+    const eventCode = normalizeAttendanceEventCode(input.code);
+    if (!eventCode) {
+        throw new Error("Code event wajib diisi.");
+    }
+
+    const data = await fetchAttendanceEvents(`/api/events/${encodeURIComponent(eventCode)}/register-link`, {
+        method: "POST",
+        body: JSON.stringify({ expiresInHours: input.expiresInHours }),
+    });
+
+    if (!data.token || !data.expiresAt || !data.eventCode || !data.registerPath || !data.dashboardPath) {
+        throw new Error("Respons token event tidak lengkap.");
+    }
+
+    return {
+        token: data.token,
+        expiresAt: data.expiresAt,
+        eventCode: data.eventCode,
+        registerPath: data.registerPath,
+        dashboardPath: data.dashboardPath,
+    };
+}
+
+export async function clearAttendanceEntries(input?: { reason?: string }): Promise<void> {
+    const reason = (input?.reason || "Manual clear dari admin panel").trim();
+    const intent = await fetchAttendance("/api/attendance/delete-intent", {
+        method: "POST",
+        body: JSON.stringify({ reason, confirmationText: "HAPUS" }),
+    });
+
+    if (!intent.token) {
+        throw new Error("Gagal membuat token konfirmasi penghapusan.");
+    }
+
+    await fetchAttendance("/api/attendance", {
+        method: "DELETE",
+        headers: {
+            "x-attendance-delete-intent": intent.token,
+        },
+    });
     notifyAttendanceUpdated();
 }
 
-export async function exportAttendanceAsJson(pretty = true): Promise<string> {
-    const all = await getAttendanceEntries();
+export async function exportAttendanceAsJson(
+    pretty = true,
+    source: string = ATTENDANCE_SOURCE,
+): Promise<string> {
+    const all = await getAttendanceEntries(source);
     return JSON.stringify(all, null, pretty ? 2 : 0);
 }
 
-export async function getTodayAttendanceCount(): Promise<number> {
-    const snapshot = await getAttendanceSnapshot();
+export async function getTodayAttendanceCount(source: string = ATTENDANCE_SOURCE): Promise<number> {
+    const snapshot = await getAttendanceSnapshot(source);
     return snapshot.todayCount;
 }
 
 export async function getTodayParticipantQuotaMap(
-    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+    source: string = ATTENDANCE_SOURCE,
 ): Promise<Record<string, ParticipantQuotaStatus>> {
     const snapshot = await getAttendanceSnapshot(source);
     return snapshot.quotaMap;
 }
 
 export async function getTodayParticipantRoleCountMap(
-    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+    source: string = ATTENDANCE_SOURCE,
 ): Promise<Record<string, Record<string, number>>> {
     const snapshot = await getAttendanceSnapshot(source);
     return snapshot.roleCountMap;

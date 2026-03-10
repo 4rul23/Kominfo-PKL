@@ -5,7 +5,6 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import SuccessScreen from "./SuccessScreen";
 import { addVisitor } from "@/lib/visitorStore";
-import { createCaseFromVisitor } from "@/lib/caseStore";
 
 interface WizardData {
     name: string;
@@ -19,7 +18,7 @@ interface WizardData {
     nomorSurat: string;
 }
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 8;
 
 export default function RegistrationWizard({
     isOpen,
@@ -40,72 +39,14 @@ export default function RegistrationWizard({
         purpose: "",
         nomorSurat: "",
     });
-    const [signature, setSignature] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const isDrawing = useRef(false);
 
     useEffect(() => {
         if (isOpen) {
             setTimeout(() => inputRef.current?.focus(), 500);
         }
     }, [step, isOpen]);
-
-    // Canvas Logic
-    const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        isDrawing.current = true;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.lineWidth = 3;
-        ctx.lineCap = "round";
-        ctx.strokeStyle = "#009FA9";
-        const { offsetX, offsetY } = getCoordinates(e, canvas);
-        ctx.beginPath();
-        ctx.moveTo(offsetX, offsetY);
-    };
-
-    const draw = (e: React.MouseEvent | React.TouchEvent) => {
-        if (!isDrawing.current) return;
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext("2d");
-        if (!ctx || !canvas) return;
-        const { offsetX, offsetY } = getCoordinates(e, canvas);
-        ctx.lineTo(offsetX, offsetY);
-        ctx.stroke();
-    };
-
-    const stopDrawing = () => {
-        if (isDrawing.current) {
-            isDrawing.current = false;
-            const canvas = canvasRef.current;
-            if (canvas) setSignature(canvas.toDataURL());
-        }
-    };
-
-    const getCoordinates = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
-        let clientX: number, clientY: number;
-        if ('touches' in e) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = (e as React.MouseEvent).clientX;
-            clientY = (e as React.MouseEvent).clientY;
-        }
-        const rect = canvas.getBoundingClientRect();
-        return { offsetX: clientX - rect.left, offsetY: clientY - rect.top };
-    };
-
-    const clearSignature = () => {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext("2d");
-        if (ctx && canvas) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            setSignature(null);
-        }
-    };
 
     const handleNext = () => {
         // Only require name, instansi asal, unit tujuan, dan keperluan
@@ -119,28 +60,28 @@ export default function RegistrationWizard({
 
     const handleBack = () => setStep((prev) => Math.max(prev - 1, 1));
 
-    const handleSubmit = () => {
-        if (!signature && step === TOTAL_STEPS) return;
+    const handleSubmit = async () => {
         setIsSubmitting(true);
 
-        const v = addVisitor({
-            name: data.name,
-            nip: data.nip || "-",
-            jabatan: data.jabatan || "-",
-            organization: data.organization,
-            asalDaerah: data.asalDaerah || "-",
-            provinsi: data.provinsi || "-",
-            unit: data.unit || "-",
-            purpose: data.purpose,
-            nomorSurat: data.nomorSurat || "-",
-        });
-        // Dummy flow: create a case so Resepsionis can triage/assign it.
-        createCaseFromVisitor(v);
-
-        setTimeout(() => {
+        try {
+            await addVisitor({
+                name: data.name,
+                nip: data.nip || "-",
+                jabatan: data.jabatan || "-",
+                organization: data.organization,
+                asalDaerah: data.asalDaerah || "-",
+                provinsi: data.provinsi || "-",
+                unit: data.unit || "-",
+                purpose: data.purpose,
+                nomorSurat: data.nomorSurat || "-",
+            });
+            setTimeout(() => {
+                setIsSubmitting(false);
+                setStep(TOTAL_STEPS + 1);
+            }, 1000);
+        } catch {
             setIsSubmitting(false);
-            setStep(TOTAL_STEPS + 1); // Success screen
-        }, 1500);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -162,6 +103,9 @@ export default function RegistrationWizard({
     ];
 
     const currentColor = stepColors[step - 1] || stepColors[0];
+    const underlineInputClass = `w-full max-w-3xl mx-auto bg-transparent border-b-2 border-gray-200 text-3xl md:text-4xl text-center text-[#172B4D] placeholder:text-gray-300 ${currentColor.focus} py-3 transition-colors font-medium mt-4 focus:outline-none register-a11y-input`;
+    const underlineInputWithIconClass = `w-full bg-transparent border-b-2 border-gray-200 text-2xl md:text-3xl text-left pl-16 pr-4 text-[#172B4D] placeholder:text-gray-300 ${currentColor.focus} py-3 transition-colors font-medium focus:outline-none register-a11y-input`;
+    const compactUnderlineInputClass = "w-full max-w-md mx-auto bg-transparent border-b-2 border-gray-200 px-1 py-3 text-[#172B4D] font-bold text-center transition-colors placeholder:text-slate-300 focus:outline-none focus:border-[#FFAB00]";
 
     return (
         <div className="fixed inset-0 z-50 flex flex-col items-center transition-all duration-500 ease-out overflow-y-auto scrollbar-hide pb-12">
@@ -215,7 +159,7 @@ export default function RegistrationWizard({
                                 </span>
                                 <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Siapa nama Anda?</h2>
                                 <p className="text-[#505F79] text-lg font-medium">Masukkan nama lengkap Anda.</p>
-                                <input ref={inputRef} type="text" value={data.name} onChange={(e) => setData({ ...data, name: e.target.value })} onKeyDown={handleKeyDown} placeholder="Nama Lengkap..." className={`w-full max-w-xl mx-auto bg-slate-50/50 backdrop-blur-sm border-2 border-slate-200 rounded-2xl text-3xl md:text-3xl lg:text-4xl text-center text-[#172B4D] placeholder:text-slate-300 ${currentColor.focus} py-5 px-6 transition-all duration-300 font-bold mt-8 focus:outline-none focus:bg-white focus:shadow-xl focus:shadow-slate-200/40 focus:-translate-y-1`} />
+                                <input ref={inputRef} type="text" value={data.name} onChange={(e) => setData({ ...data, name: e.target.value })} onKeyDown={handleKeyDown} placeholder="Nama Lengkap..." className={underlineInputClass} />
                             </div>
                         )}
 
@@ -227,7 +171,7 @@ export default function RegistrationWizard({
                                 </span>
                                 <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Instansi?</h2>
                                 <p className="text-[#505F79] text-lg font-medium">Organisasi atau lembaga Anda.</p>
-                                <input ref={inputRef} type="text" value={data.organization} onChange={(e) => setData({ ...data, organization: e.target.value })} onKeyDown={handleKeyDown} placeholder="PT / Dinas / Umum..." className={`w-full max-w-xl mx-auto bg-slate-50/50 backdrop-blur-sm border-2 border-slate-200 rounded-2xl text-3xl md:text-3xl lg:text-4xl text-center text-[#172B4D] placeholder:text-slate-300 ${currentColor.focus} py-5 px-6 transition-all duration-300 font-bold mt-8 focus:outline-none focus:bg-white focus:shadow-xl focus:shadow-slate-200/40 focus:-translate-y-1`} />
+                                <input ref={inputRef} type="text" value={data.organization} onChange={(e) => setData({ ...data, organization: e.target.value })} onKeyDown={handleKeyDown} placeholder="PT / Dinas / Umum..." className={underlineInputClass} />
                             </div>
                         )}
 
@@ -258,7 +202,7 @@ export default function RegistrationWizard({
                                             <circle cx="12" cy="7" r="4"></circle>
                                         </svg>
                                     </div>
-                                    <input ref={inputRef} type="text" value={data.jabatan} onChange={(e) => setData({ ...data, jabatan: e.target.value })} onKeyDown={handleKeyDown} placeholder="Kepala Bidang / Staff..." className={`w-full bg-white/70 backdrop-blur-md border-2 border-white/80 rounded-3xl text-2xl md:text-3xl lg:text-3xl text-left pl-16 pr-6 text-[#172B4D] placeholder:text-slate-300 ${currentColor.focus} py-6 transition-all duration-300 font-bold shadow-[0_8px_30px_rgba(23,43,77,0.06)] focus:outline-none focus:bg-white focus:shadow-xl focus:shadow-slate-200/50 focus:-translate-y-1 focus:border-[#009FA9]`} />
+                                    <input ref={inputRef} type="text" value={data.jabatan} onChange={(e) => setData({ ...data, jabatan: e.target.value })} onKeyDown={handleKeyDown} placeholder="Kepala Bidang / Staff..." className={underlineInputWithIconClass} />
                                 </motion.div>
 
                                 <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className="flex flex-wrap items-center justify-center gap-2 mt-4 max-w-lg">
@@ -297,7 +241,7 @@ export default function RegistrationWizard({
                                             <line x1="3" y1="10" x2="21" y2="10"></line>
                                         </svg>
                                     </div>
-                                    <input ref={inputRef} inputMode="numeric" type="text" value={data.nip} onChange={(e) => setData({ ...data, nip: e.target.value })} onKeyDown={handleKeyDown} placeholder="19700101... atau 7371..." className={`w-full bg-white/70 backdrop-blur-md border-2 border-white/80 rounded-3xl text-2xl tracking-wider text-left pl-16 pr-6 text-[#172B4D] placeholder:text-slate-300 ${currentColor.focus} py-6 transition-all duration-300 font-bold shadow-[0_8px_30px_rgba(23,43,77,0.06)] focus:outline-none focus:bg-white focus:shadow-xl focus:shadow-slate-200/50 focus:-translate-y-1 focus:border-red-400`} />
+                                    <input ref={inputRef} inputMode="numeric" type="text" value={data.nip} onChange={(e) => setData({ ...data, nip: e.target.value })} onKeyDown={handleKeyDown} placeholder="19700101... atau 7371..." className={underlineInputWithIconClass} />
                                 </motion.div>
                             </motion.div>
                         )}
@@ -370,7 +314,7 @@ export default function RegistrationWizard({
                                 </span>
                                 <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Daerah?</h2>
                                 <p className="text-[#505F79] text-lg font-medium">Kota atau kabupaten asal.</p>
-                                <input ref={inputRef} type="text" value={data.asalDaerah} onChange={(e) => setData({ ...data, asalDaerah: e.target.value })} onKeyDown={handleKeyDown} placeholder="Makassar, Gowa..." className={`w-full max-w-xl mx-auto bg-slate-50/50 backdrop-blur-sm border-2 border-slate-200 rounded-2xl text-3xl md:text-3xl lg:text-4xl text-center text-[#172B4D] placeholder:text-slate-300 ${currentColor.focus} py-5 px-6 transition-all duration-300 font-bold mt-8 focus:outline-none focus:bg-white focus:shadow-xl focus:shadow-slate-200/40 focus:-translate-y-1`} />
+                                <input ref={inputRef} type="text" value={data.asalDaerah} onChange={(e) => setData({ ...data, asalDaerah: e.target.value })} onKeyDown={handleKeyDown} placeholder="Makassar, Gowa..." className={underlineInputClass} />
                             </div>
                         )}
 
@@ -406,34 +350,10 @@ export default function RegistrationWizard({
                                 </span>
                                 <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Keperluan?</h2>
                                 <p className="text-[#505F79] text-lg font-medium">Jelaskan maksud kunjungan Anda.</p>
-                                <input ref={inputRef} type="text" value={data.purpose} onChange={(e) => setData({ ...data, purpose: e.target.value })} onKeyDown={handleKeyDown} placeholder="Koordinasi / Konsultasi..." className={`w-full max-w-xl mx-auto bg-slate-50/50 backdrop-blur-sm border-2 border-slate-200 rounded-2xl text-3xl md:text-3xl lg:text-4xl text-center text-[#172B4D] placeholder:text-slate-300 ${currentColor.focus} py-5 px-6 transition-all duration-300 font-bold mt-8 focus:outline-none focus:bg-white focus:shadow-xl focus:shadow-slate-200/40 focus:-translate-y-1`} />
+                                <input ref={inputRef} type="text" value={data.purpose} onChange={(e) => setData({ ...data, purpose: e.target.value })} onKeyDown={handleKeyDown} placeholder="Koordinasi / Konsultasi..." className={underlineInputClass} />
                                 <div className="mt-6">
                                     <label className="block text-xs font-bold text-[#505F79] uppercase mb-2">Nomor Surat (Opsional)</label>
-                                    <input type="text" value={data.nomorSurat} onChange={(e) => setData({ ...data, nomorSurat: e.target.value })} placeholder="123/DK/2026" className="w-full max-w-md mx-auto px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-[#172B4D] font-bold text-center transition-all focus:outline-none focus:border-[#FFAB00] focus:shadow-md focus:-translate-y-0.5" />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Step 9: Tanda Tangan */}
-                        {step === 9 && (
-                            <div className="w-full space-y-6">
-                                <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
-                                    Langkah {TOTAL_STEPS} dari {TOTAL_STEPS}
-                                </span>
-                                <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Tanda Tangan</h2>
-                                <p className="text-[#505F79] text-lg font-medium">Tanda tangan di kotak berikut.</p>
-                                <div className="relative w-full max-w-lg mx-auto h-[200px] bg-white rounded-2xl border-2 border-dashed border-gray-300 hover:border-teal-300 transition-colors shadow-sm overflow-hidden touch-none my-6">
-                                    <canvas ref={canvasRef} width={500} height={200} className="w-full h-full cursor-crosshair" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />
-                                    {!signature && !isDrawing.current && (
-                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-gray-400">
-                                            <span className="text-sm">Tanda tangan disini</span>
-                                        </div>
-                                    )}
-                                    <button onClick={clearSignature} className="absolute top-2 right-2 p-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors z-10" title="Hapus">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6" />
-                                        </svg>
-                                    </button>
+                                    <input type="text" value={data.nomorSurat} onChange={(e) => setData({ ...data, nomorSurat: e.target.value })} placeholder="123/DK/2026" className={compactUnderlineInputClass} />
                                 </div>
                             </div>
                         )}
@@ -448,7 +368,6 @@ export default function RegistrationWizard({
                                     onClose={() => {
                                         setStep(1);
                                         setData({ name: "", nip: "", jabatan: "", organization: "", asalDaerah: "", provinsi: "", unit: "", purpose: "", nomorSurat: "" });
-                                        setSignature(null);
                                         onClose();
                                     }}
                                 />
@@ -471,8 +390,8 @@ export default function RegistrationWizard({
                         <motion.button
                             whileHover={{ scale: 1.05, y: -4 }}
                             whileTap={{ scale: 0.95 }}
-                            onClick={step < TOTAL_STEPS ? handleNext : handleSubmit}
-                            disabled={isSubmitting || (step === TOTAL_STEPS && !signature)}
+                        onClick={step < TOTAL_STEPS ? handleNext : handleSubmit}
+                        disabled={isSubmitting}
                             className={`group flex items-center justify-center gap-3 px-10 py-4 text-white rounded-3xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${step === TOTAL_STEPS ? "bg-[#991b1b] shadow-[0_8px_30px_rgba(211,47,47,0.25)] hover:bg-[#b91c1c]" : "bg-[#009FA9] shadow-[0_8px_30px_rgba(0,159,169,0.25)] hover:bg-[#007A82]"}`}
                         >
                             <span className="font-extrabold text-lg tracking-wide">

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { getSuratList, getSuratStats, updateSuratStatus, exportSuratToCSV, seedDummySurat, SuratElektronik, getOverdueSurat, getHourlyStats, assignDisposisi, Prioritas, Disposisi } from "@/lib/suratStore";
+import { getSuratStats, updateSuratStatus, exportSuratToCSV, SuratElektronik, getOverdueSurat, getHourlyStats, assignDisposisi, Prioritas, fetchSuratListFromServer, getSuratByIdFromList } from "@/lib/suratStore";
 import { getCaseByRelatedSuratId } from "@/lib/caseStore";
+import { getStaffSession } from "@/lib/staffSession";
+import { canRolePerformTransition, getNextSuratStatus, type WorkflowActorRole } from "@/lib/suratWorkflow";
 
 // SVG Icons (matching admin/page.tsx style)
 const PageIcons = {
@@ -18,9 +20,10 @@ const PageIcons = {
 // Status configuration (matching main admin color style)
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
     submitted: { label: "Terkirim", color: "bg-slate-100 text-slate-600", icon: "📤" },
-    received: { label: "Diterima", color: "bg-blue-50 text-blue-700", icon: "📥" },
-    processing: { label: "Diproses", color: "bg-amber-50 text-amber-700", icon: "⏳" },
-    completed: { label: "Selesai", color: "bg-emerald-50 text-emerald-700", icon: "✅" },
+    verified: { label: "Terverifikasi", color: "bg-blue-50 text-blue-700", icon: "✅" },
+    in_review: { label: "Diproses", color: "bg-amber-50 text-amber-700", icon: "⏳" },
+    paraf: { label: "Paraf", color: "bg-indigo-50 text-indigo-700", icon: "🖋️" },
+    approved: { label: "Disetujui", color: "bg-emerald-50 text-emerald-700", icon: "✔️" },
     archived: { label: "Arsip", color: "bg-slate-50 text-slate-400", icon: "📁" },
 };
 
@@ -61,31 +64,14 @@ const INSTRUKSI_OPTIONS = [
     "Untuk diarsipkan",
 ];
 
-const STATUS_ORDER: SuratElektronik["status"][] = ["submitted", "received", "processing", "completed", "archived"];
-
-function getSlaInfo(slaDeadline: string): { text: string; isOverdue: boolean; urgency: string } {
-    const now = new Date();
-    const deadline = new Date(slaDeadline);
-    const diffMs = deadline.getTime() - now.getTime();
-
-    if (diffMs <= 0) {
-        const hoursOverdue = Math.abs(Math.floor(diffMs / (1000 * 60 * 60)));
-        return { text: `+${hoursOverdue}j`, isOverdue: true, urgency: "overdue" };
-    }
-
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) return { text: `${days}h`, isOverdue: false, urgency: days <= 1 ? "warning" : "safe" };
-    return { text: `${hours}j`, isOverdue: false, urgency: hours <= 8 ? "warning" : "safe" };
-}
+const STATUS_ORDER: SuratElektronik["status"][] = ["submitted", "verified", "in_review", "paraf", "approved", "archived"];
 
 export default function AdminSuratPage() {
     const [suratList, setSuratList] = useState<SuratElektronik[]>([]);
     const [overdueSurat, setOverdueSurat] = useState<SuratElektronik[]>([]);
     const [stats, setStats] = useState({
         today: 0, week: 0, total: 0, overdue: 0,
-        statusCounts: { submitted: 0, received: 0, processing: 0, completed: 0, archived: 0 },
+        statusCounts: { submitted: 0, verified: 0, in_review: 0, paraf: 0, approved: 0, archived: 0 },
         jenisCounts: {} as Record<string, number>,
         hourlyData: [] as number[],
     });
@@ -97,23 +83,26 @@ export default function AdminSuratPage() {
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
     const [slaFilter, setSlaFilter] = useState("all");
+    const [nowTickMs, setNowTickMs] = useState(() => Date.now());
     const [selectedSurat, setSelectedSurat] = useState<SuratElektronik | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [statusNote, setStatusNote] = useState("");
-    const [previewFile, setPreviewFile] = useState<{ filename: string; data: string; type: string } | null>(null);
+    const [actionError, setActionError] = useState("");
+    const [actorRole, setActorRole] = useState<WorkflowActorRole | null>(() => {
+        if (typeof window === "undefined") return null;
+        const session = getStaffSession();
+        return session?.role === "admin" || session?.role === "receptionist" || session?.role === "operator" ? session.role : null;
+    });
+    const [previewFile, setPreviewFile] = useState<{ filename: string; source: string; type: string } | null>(null);
     const [isDisposisiModalOpen, setIsDisposisiModalOpen] = useState(false);
     const [disposisiForm, setDisposisiForm] = useState({ assignedTo: STAFF_OPTIONS[0], instruksi: [] as string[], catatan: "" });
 
-    useEffect(() => { loadData(); const i = setInterval(loadData, 30000); return () => clearInterval(i); }, []);
-
-    const loadData = () => {
-        const list = getSuratList();
+    function applyList(list: SuratElektronik[]) {
         setSuratList(list);
-        const overdue = getOverdueSurat();
+        const overdue = getOverdueSurat(list);
         setOverdueSurat(overdue);
-        const baseStats = getSuratStats();
+        const baseStats = getSuratStats(list);
 
-        // Calculate jenis surat distribution
         const jenisCounts: Record<string, number> = {};
         list.forEach(s => {
             if (s.jenisSurat) {
@@ -121,15 +110,65 @@ export default function AdminSuratPage() {
             }
         });
 
-        setStats({ ...baseStats, overdue: overdue.length, hourlyData: getHourlyStats(), jenisCounts });
+        setStats({ ...baseStats, overdue: overdue.length, hourlyData: getHourlyStats(list), jenisCounts });
         setLastUpdated(new Date());
-    };
+    }
 
-    const handleSeedData = () => { seedDummySurat(); loadData(); };
-    const handlePreview = (file: { filename: string; data: string; type: string }) => setPreviewFile(file);
-    const handleVerify = (id: string) => { updateSuratStatus(id, "received", "Surat diverifikasi oleh Admin"); loadData(); if (selectedSurat?.id === id) setSelectedSurat(getSuratList().find(s => s.id === id) || null); };
-    const handleStatusChange = (id: string, newStatus: SuratElektronik["status"], note?: string) => { updateSuratStatus(id, newStatus, note); loadData(); if (selectedSurat?.id === id) setSelectedSurat(getSuratList().find(s => s.id === id) || null); setStatusNote(""); };
-    const getNextStatus = (current: SuratElektronik["status"]): SuratElektronik["status"] | null => { const idx = STATUS_ORDER.indexOf(current); return idx < STATUS_ORDER.length - 1 ? STATUS_ORDER[idx + 1] : null; };
+    async function refreshFromServer() {
+        const serverList = await fetchSuratListFromServer();
+        applyList(serverList);
+    }
+
+    useEffect(() => {
+        const boot = async () => {
+            const serverList = await fetchSuratListFromServer();
+            const session = getStaffSession();
+            if (session?.role === "admin" || session?.role === "receptionist" || session?.role === "operator") {
+                setActorRole(session.role);
+            }
+            applyList(serverList);
+        };
+        void boot();
+        const i = setInterval(() => {
+            void refreshFromServer();
+        }, 30000);
+        return () => clearInterval(i);
+    }, []);
+
+    useEffect(() => {
+        const timer = setInterval(() => setNowTickMs(Date.now()), 60000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const resolveAttachmentSource = (file: { fileUrl?: string; data?: string }) => file.fileUrl || file.data || "";
+    const handlePreview = (file: { filename: string; fileUrl?: string; data?: string; type: string }) => {
+        const source = resolveAttachmentSource(file);
+        if (!source) return;
+        setPreviewFile({ filename: file.filename, source, type: file.type });
+    };
+    const handleVerify = async (id: string) => {
+        try {
+            setActionError("");
+            await updateSuratStatus(id, "verified", "Surat diverifikasi oleh resepsionis/admin");
+            const freshList = await fetchSuratListFromServer();
+            applyList(freshList);
+            if (selectedSurat?.id === id) setSelectedSurat(getSuratByIdFromList(id, freshList));
+        } catch (error) {
+            setActionError(error instanceof Error ? error.message : "Gagal memverifikasi surat.");
+        }
+    };
+    const handleStatusChange = async (id: string, newStatus: SuratElektronik["status"], note?: string) => {
+        try {
+            setActionError("");
+            await updateSuratStatus(id, newStatus, note);
+            const freshList = await fetchSuratListFromServer();
+            applyList(freshList);
+            if (selectedSurat?.id === id) setSelectedSurat(getSuratByIdFromList(id, freshList));
+            setStatusNote("");
+        } catch (error) {
+            setActionError(error instanceof Error ? error.message : "Gagal mengubah status surat.");
+        }
+    };
 
     const statusOptions = STATUS_ORDER.map((status) => ({ value: status, label: STATUS_CONFIG[status]?.label || status }));
     const jenisOptions = useMemo(() => [...new Set(suratList.map((s) => s.jenisSurat).filter(Boolean))], [suratList]);
@@ -139,19 +178,19 @@ export default function AdminSuratPage() {
         setStatusFilters((prev) => prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]);
     };
 
-    const parseDate = (value: string) => new Date(`${value}T00:00:00`);
-    const matchesDateRange = (dateStr: string) => {
+    const parseDate = useCallback((value: string) => new Date(`${value}T00:00:00`), []);
+    const matchesDateRange = useCallback((dateStr: string) => {
         if (!dateFrom && !dateTo) return true;
         const date = parseDate(dateStr);
         if (dateFrom && date < parseDate(dateFrom)) return false;
         if (dateTo && date > parseDate(dateTo)) return false;
         return true;
-    };
+    }, [dateFrom, dateTo, parseDate]);
 
-    const matchesSlaRange = (deadline?: string) => {
+    const matchesSlaRange = useCallback((deadline?: string) => {
         if (slaFilter === "all") return true;
         if (!deadline) return false;
-        const diffMs = new Date(deadline).getTime() - Date.now();
+        const diffMs = new Date(deadline).getTime() - nowTickMs;
         const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
         switch (slaFilter) {
@@ -168,7 +207,7 @@ export default function AdminSuratPage() {
             default:
                 return true;
         }
-    };
+    }, [slaFilter, nowTickMs]);
 
     const filteredSurat = useMemo(() => suratList.filter((s) => {
         const q = searchQuery.toLowerCase();
@@ -181,14 +220,21 @@ export default function AdminSuratPage() {
         const matchesSla = matchesSlaRange(s.slaDeadline);
 
         return matchesSearch && matchesStatus && matchesPriority && matchesJenis && matchesInstansi && matchesTanggal && matchesSla;
-    }), [suratList, searchQuery, statusFilters, priorityFilter, jenisFilter, instansiFilter, dateFrom, dateTo, slaFilter]);
+    }), [suratList, searchQuery, statusFilters, priorityFilter, jenisFilter, instansiFilter, matchesDateRange, matchesSlaRange]);
 
     const openDisposisiModal = (surat: SuratElektronik) => { setSelectedSurat(surat); setIsDisposisiModalOpen(true); setDisposisiForm(surat.disposisi ? { assignedTo: surat.disposisi.assignedTo, instruksi: surat.disposisi.instruksi, catatan: surat.disposisi.catatan } : { assignedTo: STAFF_OPTIONS[0], instruksi: [], catatan: "" }); };
-    const handleDisposisiSubmit = () => { if (!selectedSurat) return; assignDisposisi(selectedSurat.id, { ...disposisiForm, disposisiOleh: "Admin" }); loadData(); setIsDisposisiModalOpen(false); setSelectedSurat(getSuratList().find(s => s.id === selectedSurat.id) || null); };
+    const handleDisposisiSubmit = async () => { if (!selectedSurat) return; try { await assignDisposisi(selectedSurat.id, { ...disposisiForm, disposisiOleh: "Admin" }, suratList); const freshList = await fetchSuratListFromServer(); applyList(freshList); setIsDisposisiModalOpen(false); setSelectedSurat(getSuratByIdFromList(selectedSurat.id, freshList)); } catch (error) { setActionError(error instanceof Error ? error.message : "Gagal menyimpan disposisi."); } };
     const toggleInstruksi = (instruksi: string) => setDisposisiForm(prev => ({ ...prev, instruksi: prev.instruksi.includes(instruksi) ? prev.instruksi.filter(i => i !== instruksi) : [...prev.instruksi, instruksi] }));
-    const handleExport = () => { const csv = exportSuratToCSV(); const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `surat_${new Date().toISOString().split("T")[0]}.csv`; link.click(); };
+    const handleExport = () => { const csv = exportSuratToCSV(suratList); const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `surat_${new Date().toISOString().split("T")[0]}.csv`; link.click(); };
     const formatFileSize = (bytes: number): string => bytes < 1024 ? bytes + " B" : bytes < 1024 * 1024 ? (bytes / 1024).toFixed(1) + " KB" : (bytes / (1024 * 1024)).toFixed(1) + " MB";
-    const downloadAttachment = (a: { filename: string; data: string }) => { const l = document.createElement("a"); l.href = a.data; l.download = a.filename; l.click(); };
+    const downloadAttachment = (a: { filename: string; fileUrl?: string; data?: string; source?: string }) => {
+        const href = a.fileUrl || a.data || a.source;
+        if (!href) return;
+        const l = document.createElement("a");
+        l.href = href;
+        l.download = a.filename;
+        l.click();
+    };
     const formatDateTime = (isoStr: string) => new Date(isoStr).toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     const maxHourly = Math.max(...stats.hourlyData, 1);
@@ -207,12 +253,9 @@ export default function AdminSuratPage() {
                     </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                    <button onClick={loadData} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
+                    <button onClick={() => { void refreshFromServer(); }} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                         {PageIcons.refresh}
                         Refresh
-                    </button>
-                    <button onClick={handleSeedData} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
-                        Seed Data
                     </button>
                     <button onClick={handleExport} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#009FA9]/20">
                         {PageIcons.download}
@@ -237,12 +280,13 @@ export default function AdminSuratPage() {
             )}
 
             {/* Stats Row - matching admin/page.tsx */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
                 {[
                     { label: "Baru Masuk", value: stats.statusCounts.submitted, accent: "bg-slate-500" },
-                    { label: "Diterima", value: stats.statusCounts.received, accent: "bg-blue-500" },
-                    { label: "Diproses", value: stats.statusCounts.processing, accent: "bg-amber-500" },
-                    { label: "Selesai", value: stats.statusCounts.completed, accent: "bg-emerald-500" },
+                    { label: "Terverifikasi", value: stats.statusCounts.verified, accent: "bg-blue-500" },
+                    { label: "Diproses", value: stats.statusCounts.in_review, accent: "bg-amber-500" },
+                    { label: "Paraf", value: stats.statusCounts.paraf, accent: "bg-indigo-500" },
+                    { label: "Disetujui", value: stats.statusCounts.approved, accent: "bg-emerald-500" },
                     { label: "Arsip", value: stats.statusCounts.archived, accent: "bg-slate-400" },
                     { label: "Total", value: stats.total, accent: "bg-[#009FA9]" },
                 ].map((s) => (
@@ -431,7 +475,6 @@ export default function AdminSuratPage() {
                         {filteredSurat.length === 0 ? (
                             <tr><td colSpan={8} className="px-4 py-16 text-center text-slate-400 text-sm">Belum ada surat masuk</td></tr>
                         ) : filteredSurat.slice(0, 20).map((s) => {
-                            const sla = s.slaDeadline ? getSlaInfo(s.slaDeadline) : null;
                             return (
                                 <tr key={s.id} className="hover:bg-slate-50/50">
                                     <td className="px-4 py-3">
@@ -475,7 +518,7 @@ export default function AdminSuratPage() {
                                             <button onClick={() => setSelectedSurat(s)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
                                                 {PageIcons.eye}
                                             </button>
-                                            {s.status !== "completed" && s.status !== "archived" && (
+                                            {s.status !== "approved" && s.status !== "archived" && (
                                                 <button onClick={() => openDisposisiModal(s)} className="px-3 py-1.5 text-xs font-bold text-[#009FA9] bg-[#009FA9]/10 border border-[#009FA9]/20 rounded-xl hover:bg-[#009FA9]/15 transition-all">
                                                     Disposisi
                                                 </button>
@@ -513,15 +556,30 @@ export default function AdminSuratPage() {
                                 </span>
                                 <div className="flex gap-2">
                                     {selectedSurat.status === "submitted" && (
-                                        <button onClick={() => handleVerify(selectedSurat.id)} className="px-4 py-2 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-md transition-all">Verifikasi</button>
+                                        <button
+                                            onClick={() => { void handleVerify(selectedSurat.id); }}
+                                            disabled={!actorRole || !canRolePerformTransition(actorRole, "submitted", "verified")}
+                                            className="px-4 py-2 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                        >
+                                            Verifikasi
+                                        </button>
                                     )}
-                                    {getNextStatus(selectedSurat.status) && selectedSurat.status !== "archived" && selectedSurat.status !== "submitted" && (
-                                        <button onClick={() => handleStatusChange(selectedSurat.id, getNextStatus(selectedSurat.status)!)} className="px-3 py-2 text-xs font-bold text-[#505F79] border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all">
-                                            → {STATUS_CONFIG[getNextStatus(selectedSurat.status)!]?.label}
+                                    {getNextSuratStatus(selectedSurat.status) && selectedSurat.status !== "archived" && selectedSurat.status !== "submitted" && (
+                                        <button
+                                            onClick={() => { void handleStatusChange(selectedSurat.id, getNextSuratStatus(selectedSurat.status)!); }}
+                                            disabled={!actorRole || !canRolePerformTransition(actorRole, selectedSurat.status, getNextSuratStatus(selectedSurat.status)!)}
+                                            className="px-3 py-2 text-xs font-bold text-[#505F79] border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                        >
+                                            → {STATUS_CONFIG[getNextSuratStatus(selectedSurat.status)!]?.label}
                                         </button>
                                     )}
                                 </div>
                             </div>
+                            {actionError && (
+                                <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+                                    {actionError}
+                                </div>
+                            )}
 
                             {/* Info Grid */}
                             <div className="grid grid-cols-2 gap-4">
@@ -599,13 +657,36 @@ export default function AdminSuratPage() {
                             )}
 
                             {/* Update Status */}
-                            {selectedSurat.status !== "archived" && getNextStatus(selectedSurat.status) && (
+                            {selectedSurat.status !== "archived" && getNextSuratStatus(selectedSurat.status) && (
                                 <div className="bg-[#009FA9]/5 rounded-2xl p-4 border-2 border-[#009FA9]/20">
                                     <p className="text-xs font-bold text-[#009FA9] uppercase tracking-wider mb-2">Update Status</p>
                                     <textarea value={statusNote} onChange={(e) => setStatusNote(e.target.value)} placeholder="Catatan (opsional)..." rows={2} className="w-full px-3 py-2 border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9] resize-none mb-3 bg-white" />
-                                    <button onClick={() => handleStatusChange(selectedSurat.id, getNextStatus(selectedSurat.status)!, statusNote || undefined)} className="px-4 py-2 bg-[#009FA9] text-white font-bold text-sm rounded-2xl hover:shadow-md transition-all">
-                                        Update ke {STATUS_CONFIG[getNextStatus(selectedSurat.status)!]?.label}
+                                    <button
+                                        onClick={() => { void handleStatusChange(selectedSurat.id, getNextSuratStatus(selectedSurat.status)!, statusNote || undefined); }}
+                                        disabled={!actorRole || !canRolePerformTransition(actorRole, selectedSurat.status, getNextSuratStatus(selectedSurat.status)!)}
+                                        className="px-4 py-2 bg-[#009FA9] text-white font-bold text-sm rounded-2xl hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        Update ke {STATUS_CONFIG[getNextSuratStatus(selectedSurat.status)!]?.label}
                                     </button>
+                                </div>
+                            )}
+
+                            {selectedSurat.approvalTrail && selectedSurat.approvalTrail.length > 0 && (
+                                <div className="bg-white border-2 border-gray-200 rounded-2xl p-4">
+                                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">Approval Trail</p>
+                                    <div className="space-y-3">
+                                        {selectedSurat.approvalTrail.map((entry) => (
+                                            <div key={entry.id} className="p-3 border-2 border-gray-200 rounded-2xl bg-slate-50">
+                                                <p className="text-sm font-semibold text-slate-700">
+                                                    {STATUS_CONFIG[entry.fromStatus]?.label} -&gt; {STATUS_CONFIG[entry.toStatus]?.label}
+                                                </p>
+                                                <p className="text-xs text-slate-500 mt-1">
+                                                    {entry.actorName} ({entry.actorRole}) • {formatDateTime(entry.timestamp)}
+                                                </p>
+                                                {entry.note && <p className="text-xs text-slate-500 mt-1">{entry.note}</p>}
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -669,9 +750,9 @@ export default function AdminSuratPage() {
                         </div>
                         <div className="flex-1 bg-slate-100 overflow-hidden flex items-center justify-center p-2">
                             {previewFile.type.startsWith("image/") ? (
-                                <div className="relative w-full h-full"><Image src={previewFile.data} alt={previewFile.filename} fill className="object-contain" /></div>
+                                <div className="relative w-full h-full"><Image src={previewFile.source} alt={previewFile.filename} fill className="object-contain" unoptimized /></div>
                             ) : previewFile.type === "application/pdf" ? (
-                                <iframe src={previewFile.data} className="w-full h-full rounded-2xl border-2 border-gray-200 bg-white" title={previewFile.filename} />
+                                <iframe src={previewFile.source} className="w-full h-full rounded-2xl border-2 border-gray-200 bg-white" title={previewFile.filename} />
                             ) : (
                                 <div className="text-center p-8 bg-white rounded-2xl border-2 border-gray-200">
                                     <p className="text-slate-800 font-medium mb-1">Preview tidak tersedia</p>

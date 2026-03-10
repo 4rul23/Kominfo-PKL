@@ -11,17 +11,27 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "db:seed:attendance": "node scripts/seed-attendance-db.mjs"
+    "db:seed:attendance": "node scripts/seed-attendance-db.mjs",
+    "report:attendance:pdf": "node scripts/export-attendance-report-pdf.mjs",
+    "report:attendance:xlsx": "node scripts/export-attendance-report-xlsx.mjs",
+    "report:attendance:csv": "node scripts/export-attendance-report-csv.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.34.3",
     "next": "16.1.1",
+    "pdfkit": "^0.17.2",
     "qrcode.react": "^4.2.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "svg-to-pdfkit": "^0.1.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

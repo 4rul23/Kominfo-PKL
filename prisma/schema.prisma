@@ -26,3 +26,166 @@ model Attendance {
   @@index([participantId, createdAt])
   @@map("attendances")
 }
+
+model AttendanceEvent {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  eventDate DateTime?
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, updatedAt])
+  @@map("attendance_events")
+}
+
+enum StaffRole {
+  admin
+  receptionist
+  operator
+}
+
+enum StaffInstansi {
+  DISKOMINFO_MAKASSAR
+  UPT_WARROOM
+}
+
+model StaffUser {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  name         String
+  nipNik       String
+  instansi     StaffInstansi
+  role         StaffRole
+  orgUnitId    String?
+  whatsapp     String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions StaffSession[]
+  deleteIntents AttendanceDeleteIntent[]
+  logs     AuditLog[]
+
+  @@index([role, isActive])
+  @@map("staff_users")
+}
+
+model StaffSession {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  revokedAt  DateTime?
+  userAgent  String?
+  ipAddress  String?
+
+  user StaffUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, revokedAt])
+  @@map("staff_sessions")
+}
+
+model AttendanceDeleteIntent {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  userId      String
+  reason      String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  user StaffUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, consumedAt])
+  @@map("attendance_delete_intents")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  actorUserId String?
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actorUser StaffUser? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt(sort: Desc)])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model WebNotification {
+  id        String   @id @default(cuid())
+  toUserId  String
+  type      String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([toUserId, createdAt(sort: Desc)])
+  @@index([toUserId, readAt])
+  @@map("web_notifications")
+}
+
+model AppState {
+  key       String   @id
+  payload   Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("app_state")
+}
+
+model SuratSubmission {
+  id        String   @id
+  trackingId String  @unique
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([trackingId])
+  @@map("surat_submissions")
+}
+
+enum InternAttendanceVerdict {
+  accepted
+  flagged
+  rejected
+}
+
+model InternAttendance {
+  id                  String                 @id @default(cuid())
+  internId            String
+  internName          String
+  eventCode           String
+  shiftType           String
+  capturedAt          DateTime
+  selfieDataUrl       String
+  latitude            Float
+  longitude           Float
+  accuracyMeters      Float?
+  distanceFromOfficeM Float?
+  isMockedLocation    Boolean               @default(false)
+  deviceId            String?
+  deviceBrand         String?
+  deviceModel         String?
+  riskScore           Int
+  verdict             InternAttendanceVerdict
+  riskFlags           Json
+  createdAt           DateTime               @default(now())
+
+  @@index([eventCode, createdAt(sort: Desc)])
+  @@index([internId, capturedAt(sort: Desc)])
+  @@index([verdict, createdAt(sort: Desc)])
+  @@map("intern_attendances")
+}

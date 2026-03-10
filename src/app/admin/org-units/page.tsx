@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { deleteOrgUnit, getOrgUnitContacts, getOrgUnits, seedDefaultOrgStructure, upsertOrgUnit, upsertOrgUnitContact, type OrgUnit, type OrgUnitContact, type OrgUnitType } from "@/lib/orgUnitStore";
+import { createOrgContactId, deleteOrgUnit, fetchOrgDataFromServer, getOrgUnitContacts, getOrgUnits, seedDefaultOrgStructure, upsertOrgUnit, upsertOrgUnitContact, type OrgUnit, type OrgUnitContact, type OrgUnitType } from "@/lib/orgUnitStore";
 
 const Icons = {
     trash: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>,
@@ -19,16 +19,20 @@ export default function OrgUnitsPage() {
     const [type, setType] = useState<OrgUnitType>("bidang");
     const [parentId, setParentId] = useState<string>("");
 
-    const load = () => {
-        setUnits(getOrgUnits());
-        setContacts(getOrgUnitContacts());
+    const load = (next?: { units: OrgUnit[]; contacts: OrgUnitContact[] }) => {
+        setUnits(next?.units || getOrgUnits());
+        setContacts(next?.contacts || getOrgUnitContacts());
         setLastUpdated(new Date());
     };
 
     useEffect(() => {
-        seedDefaultOrgStructure();
-        load();
-        const i = setInterval(load, 30000);
+        const boot = async () => {
+            await seedDefaultOrgStructure();
+            const data = await fetchOrgDataFromServer();
+            load(data);
+        };
+        void boot();
+        const i = setInterval(() => { void fetchOrgDataFromServer().then(load); }, 30000);
         return () => clearInterval(i);
     }, []);
 
@@ -37,7 +41,7 @@ export default function OrgUnitsPage() {
     const leadFor = (orgUnitId: string) => contacts.find((c) => c.orgUnitId === orgUnitId && c.contactType === "lead") || null;
     const kadis = useMemo(() => contacts.find((c) => c.contactType === "kadis") || null, [contacts]);
 
-    const handleCreate = (e: React.FormEvent) => {
+    const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         const c = code.trim();
         const n = name.trim();
@@ -49,37 +53,40 @@ export default function OrgUnitsPage() {
             type,
             parentId: parentId || null,
         };
-        upsertOrgUnit(u);
+        await upsertOrgUnit(u);
         setCode("");
         setName("");
         setParentId("");
         setType("bidang");
-        load();
+        const data = await fetchOrgDataFromServer();
+        load(data);
     };
 
-    const setLead = (orgUnitId: string, nameOverride: string, whatsapp: string) => {
+    const setLead = async (orgUnitId: string, nameOverride: string, whatsapp: string) => {
         const existing = leadFor(orgUnitId);
-        upsertOrgUnitContact({
-            id: existing?.id || crypto.randomUUID(),
+        await upsertOrgUnitContact({
+            id: existing?.id || createOrgContactId(),
             orgUnitId,
             contactType: "lead",
             userId: existing?.userId || null,
             nameOverride: nameOverride.trim() || null,
             whatsapp: whatsapp.trim() || "",
         });
-        load();
+        const data = await fetchOrgDataFromServer();
+        load(data);
     };
 
-    const setKadis = (nameOverride: string, whatsapp: string) => {
-        upsertOrgUnitContact({
-            id: kadis?.id || crypto.randomUUID(),
+    const setKadis = async (nameOverride: string, whatsapp: string) => {
+        await upsertOrgUnitContact({
+            id: kadis?.id || createOrgContactId(),
             orgUnitId: "DISKOMINFO_KOTA_MAKASSAR",
             contactType: "kadis",
             userId: null,
             nameOverride: nameOverride.trim() || "Kepala Dinas",
             whatsapp: whatsapp.trim() || "",
         });
-        load();
+        const data = await fetchOrgDataFromServer();
+        load(data);
     };
 
     return (
@@ -88,13 +95,13 @@ export default function OrgUnitsPage() {
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Org Units</h2>
                     <div className="flex items-center gap-2 mt-1">
-                        <p className="text-sm text-slate-500">Master struktur organisasi + lead contact (dummy)</p>
+                        <p className="text-sm text-slate-500">Master struktur organisasi + lead contact backend</p>
                         {lastUpdated && (
                             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Updated: {lastUpdated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
                         )}
                     </div>
                 </div>
-                <button onClick={load} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
+                <button onClick={() => load()} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                     {Icons.refresh}
                     Refresh
                 </button>
@@ -107,13 +114,13 @@ export default function OrgUnitsPage() {
                         <input
                             defaultValue={kadis?.nameOverride || "Kepala Dinas"}
                             placeholder="Nama"
-                            onBlur={(e) => setKadis(e.target.value, kadis?.whatsapp || "")}
+                            onBlur={(e) => { void setKadis(e.target.value, kadis?.whatsapp || ""); }}
                             className="px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9]"
                         />
                         <input
                             defaultValue={kadis?.whatsapp || ""}
                             placeholder="WhatsApp"
-                            onBlur={(e) => setKadis(kadis?.nameOverride || "Kepala Dinas", e.target.value)}
+                            onBlur={(e) => { void setKadis(kadis?.nameOverride || "Kepala Dinas", e.target.value); }}
                             className="px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9]"
                         />
                         <p className="text-xs text-slate-400 flex items-center">Dipakai tombol “Eskalasi Kadis” di case detail.</p>
@@ -170,7 +177,7 @@ export default function OrgUnitsPage() {
                                             <input
                                                 defaultValue={lead?.nameOverride || ""}
                                                 placeholder="Nama lead"
-                                                onBlur={(e) => setLead(u.id, e.target.value, lead?.whatsapp || "")}
+                                                onBlur={(e) => { void setLead(u.id, e.target.value, lead?.whatsapp || ""); }}
                                                 className="w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9]"
                                             />
                                         </td>
@@ -178,16 +185,17 @@ export default function OrgUnitsPage() {
                                             <input
                                                 defaultValue={lead?.whatsapp || ""}
                                                 placeholder="08xxx / +62xxx"
-                                                onBlur={(e) => setLead(u.id, lead?.nameOverride || "", e.target.value)}
+                                                onBlur={(e) => { void setLead(u.id, lead?.nameOverride || "", e.target.value); }}
                                                 className="w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9] font-mono"
                                             />
                                         </td>
                                         <td className="px-4 py-3">
                                             <button
-                                                onClick={() => {
+                                                onClick={async () => {
                                                     if (!confirm(`Hapus org unit: ${u.name}?`)) return;
-                                                    deleteOrgUnit(u.id);
-                                                    load();
+                                                    await deleteOrgUnit(u.id);
+                                                    const data = await fetchOrgDataFromServer();
+                                                    load(data);
                                                 }}
                                                 className="inline-flex items-center justify-center px-3 py-2 text-xs font-bold text-[#991b1b] bg-white border-2 border-[#991b1b]/30 hover:bg-[#991b1b]/10 rounded-xl transition-colors"
                                             >
@@ -204,4 +212,3 @@ export default function OrgUnitsPage() {
         </div>
     );
 }
-

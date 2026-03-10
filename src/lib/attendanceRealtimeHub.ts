@@ -2,19 +2,23 @@ const encoder = new TextEncoder();
 
 type StreamController = ReadableStreamDefaultController<Uint8Array>;
 
-const streamControllers = new Set<StreamController>();
+const streamControllers = new Map<StreamController, string | null>();
 
 function encodeSse(event: string, payload: Record<string, unknown>): Uint8Array {
     const message = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
     return encoder.encode(message);
 }
 
-export function registerAttendanceStream(controller: StreamController): () => void {
-    streamControllers.add(controller);
+export function registerAttendanceStream(
+    controller: StreamController,
+    sourceFilter: string | null = null,
+): () => void {
+    streamControllers.set(controller, sourceFilter);
     controller.enqueue(
         encodeSse("connected", {
             ok: true,
             ts: Date.now(),
+            source: sourceFilter,
         }),
     );
 
@@ -23,15 +27,19 @@ export function registerAttendanceStream(controller: StreamController): () => vo
     };
 }
 
-export function emitAttendanceUpdated(reason = "updated"): void {
+export function emitAttendanceUpdated(reason = "updated", source: string | null = null): void {
     if (streamControllers.size === 0) return;
 
     const packet = encodeSse("attendance-updated", {
         reason,
+        source,
         ts: Date.now(),
     });
 
-    for (const controller of streamControllers) {
+    for (const [controller, sourceFilter] of streamControllers) {
+        if (sourceFilter && source && sourceFilter !== source) {
+            continue;
+        }
         try {
             controller.enqueue(packet);
         } catch {

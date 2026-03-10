@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
     addCaseEvent,
     assignCase,
+    hydrateCasesFromServer,
     getCaseById,
     getCaseEvents,
     getRelatedSurat,
@@ -14,9 +15,10 @@ import {
     type CaseItem,
     type CaseStatus,
 } from "@/lib/caseStore";
-import { getOrgUnits, getLeadContact, getKadisContact } from "@/lib/orgUnitStore";
+import { fetchOrgDataFromServer, getOrgUnits, getLeadContact, getKadisContact, hydrateOrgDataFromServer } from "@/lib/orgUnitStore";
 import { getStaffSession } from "@/lib/staffSession";
-import { getStaffUserById, getStaffUsers, type StaffUser } from "@/lib/staffStore";
+import { fetchStaffUsersFromServer, getStaffUserById, getStaffUsers, hydrateStaffUsersFromServer, type StaffUser } from "@/lib/staffStore";
+import { hydrateVisitorsFromServer } from "@/lib/visitorStore";
 import { buildWaMeLink } from "@/lib/whatsapp";
 import { addWebNotification } from "@/lib/webNotificationStore";
 
@@ -49,19 +51,19 @@ export default function CaseDetailPage() {
     const caseId = params?.id;
 
     const session = useMemo(() => getStaffSession(), []);
-    const currentUser = useMemo(() => (session ? getStaffUserById(session.userId) : null), [session]);
+    const [users, setUsers] = useState<StaffUser[]>([]);
+    const [orgUnits, setOrgUnits] = useState(() => getOrgUnits());
+    const currentUser = useMemo(() => (session ? users.find((u) => u.id === session.userId) || getStaffUserById(session.userId) : null), [session, users]);
 
     const [item, setItem] = useState<CaseItem | null>(null);
     const [events, setEvents] = useState<any[]>([]);
-    const [users, setUsers] = useState<StaffUser[]>([]);
     const [note, setNote] = useState("");
     const [statusNext, setStatusNext] = useState<CaseStatus | "">("");
+    const [relatedSurat, setRelatedSurat] = useState<any | null>(null);
 
     const [orgUnitId, setOrgUnitId] = useState("");
     const [operatorId, setOperatorId] = useState("");
     const [priority, setPriority] = useState<"normal" | "high" | "urgent">("normal");
-
-    const orgUnits = useMemo(() => getOrgUnits(), []);
 
     const orgLabel = (id: string | null) => {
         if (!id) return "-";
@@ -82,13 +84,37 @@ export default function CaseDetailPage() {
     };
 
     useEffect(() => {
-        load();
-        const i = setInterval(load, 30000);
+        const boot = async () => {
+            const [staffUsers, orgData] = await Promise.all([
+                fetchStaffUsersFromServer(),
+                fetchOrgDataFromServer(),
+                hydrateVisitorsFromServer(),
+                hydrateStaffUsersFromServer(),
+                hydrateOrgDataFromServer(),
+            ]);
+            setUsers(staffUsers);
+            setOrgUnits(orgData.units);
+            await hydrateCasesFromServer();
+            load();
+        };
+        void boot();
+        const i = setInterval(() => { void hydrateCasesFromServer().then(load); }, 30000);
         return () => clearInterval(i);
     }, [caseId]);
 
     const relatedVisitor = useMemo(() => (item ? getRelatedVisitor(item) : null), [item]);
-    const relatedSurat = useMemo(() => (item ? getRelatedSurat(item) : null), [item]);
+
+    useEffect(() => {
+        const loadSurat = async () => {
+            if (item) {
+                const surat = await getRelatedSurat(item);
+                setRelatedSurat(surat);
+            } else {
+                setRelatedSurat(null);
+            }
+        };
+        void loadSurat();
+    }, [item]);
 
     const isReceptionOrAdmin = currentUser?.role === "admin" || currentUser?.role === "receptionist";
     const isOperator = currentUser?.role === "operator";
@@ -154,7 +180,7 @@ export default function CaseDetailPage() {
         });
         if (updated) {
             const op = users.find((u) => u.id === operatorId);
-            addWebNotification({
+            void addWebNotification({
                 toUserId: operatorId,
                 type: "task_assigned",
                 title: `Tugas baru: Case ${shortId(item.id)}`,
@@ -163,7 +189,7 @@ export default function CaseDetailPage() {
             });
             // Optional: notify receptionist too (assignment happened)
             users.filter((u) => u.role === "receptionist").forEach((r) => {
-                addWebNotification({
+                void addWebNotification({
                     toUserId: r.id,
                     type: "status_update",
                     title: `Assigned: Case ${shortId(item.id)}`,
@@ -194,7 +220,7 @@ export default function CaseDetailPage() {
         window.open(href, "_blank", "noreferrer");
         addCaseEvent({ caseId: item.id, actorUserId: currentUser?.id || null, eventType: "contacted", payloadJson: { to: "lead", orgUnitId: item.orgUnitId } });
         users.filter((u) => u.role === "receptionist").forEach((r) => {
-            addWebNotification({
+            void addWebNotification({
                 toUserId: r.id,
                 type: "escalation",
                 title: `Eskalasi lead: Case ${shortId(item.id)}`,
@@ -213,7 +239,7 @@ export default function CaseDetailPage() {
         window.open(href, "_blank", "noreferrer");
         addCaseEvent({ caseId: item.id, actorUserId: currentUser?.id || null, eventType: "contacted", payloadJson: { to: "kadis" } });
         users.filter((u) => u.role === "receptionist").forEach((r) => {
-            addWebNotification({
+            void addWebNotification({
                 toUserId: r.id,
                 type: "escalation",
                 title: `Eskalasi kadis: Case ${shortId(item.id)}`,
@@ -230,7 +256,7 @@ export default function CaseDetailPage() {
         // Notify receptionist/admin of operator note.
         users.filter((u) => u.role === "receptionist" || u.role === "admin").forEach((r) => {
             if (currentUser?.id === r.id) return;
-            addWebNotification({
+            void addWebNotification({
                 toUserId: r.id,
                 type: "note",
                 title: `Catatan baru: Case ${shortId(item.id)}`,
@@ -249,7 +275,7 @@ export default function CaseDetailPage() {
         // Notify receptionist/admin when operator updates status.
         users.filter((u) => u.role === "receptionist" || u.role === "admin").forEach((r) => {
             if (currentUser?.id === r.id) return;
-            addWebNotification({
+            void addWebNotification({
                 toUserId: r.id,
                 type: "status_update",
                 title: `Status update: Case ${shortId(item.id)}`,

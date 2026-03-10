@@ -1,20 +1,42 @@
 "use client";
 
+import {
+    canTransitionSuratStatus,
+    getSuratTransitionError,
+    normalizeSuratStatus,
+    type SuratStatus,
+} from "@/lib/suratWorkflow";
+import { createClientSafeId } from "@/lib/id";
+
 // File attachment interface
 export interface Attachment {
     id: string;
     filename: string;
     type: string;
     size: number;
-    data: string; // Base64 encoded
+    data?: string;
+    fileUrl?: string;
+    relativePath?: string;
+    storedFilename?: string;
     uploadedAt: string;
 }
 
 // Status change history
 export interface StatusChange {
-    status: string;
+    status: SuratStatus;
     timestamp: string;
     note?: string;
+}
+
+export interface ApprovalTrailEntry {
+    id: string;
+    fromStatus: SuratStatus;
+    toStatus: SuratStatus;
+    actorUserId: string;
+    actorName: string;
+    actorRole: "admin" | "receptionist" | "operator";
+    note?: string;
+    timestamp: string;
 }
 
 // Disposisi (letter assignment) interface
@@ -80,15 +102,139 @@ export interface SuratElektronik {
     responseNote?: string;     // Admin response note
 
     // Metadata
-    status: "submitted" | "received" | "processing" | "completed" | "archived";
+    status: SuratStatus;
     statusHistory: StatusChange[];
+    approvalTrail?: ApprovalTrailEntry[];
     timestamp: string;
     date: string;
     lastUpdated: string;
 }
 
-// Storage key
-const STORAGE_KEY = "diskominfo_surat_elektronik";
+function normalizeStatusOrDefault(value: unknown): SuratStatus {
+    return normalizeSuratStatus(value) || "submitted";
+}
+
+function normalizeStatusHistory(history: unknown, fallbackStatus: SuratStatus): StatusChange[] {
+    if (!Array.isArray(history)) {
+        return [{ status: fallbackStatus, timestamp: new Date().toISOString(), note: "Status awal surat" }];
+    }
+
+    const mapped = history
+        .map((entry) => {
+            if (!entry || typeof entry !== "object") return null;
+            const row = entry as Record<string, unknown>;
+            const status = normalizeSuratStatus(row.status);
+            if (!status) return null;
+            return {
+                status,
+                timestamp: typeof row.timestamp === "string" && row.timestamp ? row.timestamp : new Date().toISOString(),
+                note: typeof row.note === "string" ? row.note : undefined,
+            } as StatusChange;
+        })
+        .filter((row): row is StatusChange => row !== null);
+
+    if (mapped.length === 0) {
+        return [{ status: fallbackStatus, timestamp: new Date().toISOString(), note: "Status awal surat" }];
+    }
+    return mapped;
+}
+
+function normalizeApprovalTrail(trail: unknown): ApprovalTrailEntry[] {
+    if (!Array.isArray(trail)) return [];
+    return trail
+        .map((entry) => {
+            if (!entry || typeof entry !== "object") return null;
+            const row = entry as Record<string, unknown>;
+            const fromStatus = normalizeSuratStatus(row.fromStatus);
+            const toStatus = normalizeSuratStatus(row.toStatus);
+            if (!fromStatus || !toStatus) return null;
+            const actorRoleRaw = row.actorRole;
+            const actorRole = actorRoleRaw === "admin" || actorRoleRaw === "receptionist" || actorRoleRaw === "operator" ? actorRoleRaw : null;
+            if (!actorRole) return null;
+
+            return {
+                id: typeof row.id === "string" && row.id ? row.id : createClientSafeId("approval"),
+                fromStatus,
+                toStatus,
+                actorUserId: typeof row.actorUserId === "string" ? row.actorUserId : "-",
+                actorName: typeof row.actorName === "string" ? row.actorName : "-",
+                actorRole,
+                note: typeof row.note === "string" ? row.note : undefined,
+                timestamp: typeof row.timestamp === "string" && row.timestamp ? row.timestamp : new Date().toISOString(),
+            } as ApprovalTrailEntry;
+        })
+        .filter((row): row is ApprovalTrailEntry => row !== null);
+}
+
+function normalizeSuratRecord(record: SuratElektronik): SuratElektronik {
+    const normalizedStatus = normalizeStatusOrDefault(record.status);
+    return {
+        ...record,
+        status: normalizedStatus,
+        statusHistory: normalizeStatusHistory(record.statusHistory, normalizedStatus),
+        approvalTrail: normalizeApprovalTrail(record.approvalTrail),
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Server communication helpers
+// ---------------------------------------------------------------------------
+
+async function transitionSuratStatusOnServer(input: { id: string; toStatus: SuratStatus; note?: string }): Promise<SuratElektronik> {
+    const response = await fetch("/api/surat/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+
+    const data = (await response.json().catch(() => ({}))) as { surat?: SuratElektronik; message?: string };
+    if (!response.ok || !data.surat) {
+        throw new Error(data.message || "Gagal mengubah status surat.");
+    }
+    return normalizeSuratRecord(data.surat);
+}
+
+async function pushSuratToServer(surat: SuratElektronik): Promise<SuratElektronik> {
+    const response = await fetch("/api/surat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ surat }),
+    });
+
+    const data = (await response.json().catch(() => ({}))) as { surat?: SuratElektronik; message?: string };
+    if (!response.ok || !data.surat) {
+        throw new Error(data.message || "Gagal menyimpan surat ke backend.");
+    }
+    return normalizeSuratRecord(data.surat);
+}
+
+// ---------------------------------------------------------------------------
+// Server-first data access (NO localStorage)
+// ---------------------------------------------------------------------------
+
+/** Fetch ALL surat from the server (PostgreSQL). */
+export async function fetchSuratListFromServer(): Promise<SuratElektronik[]> {
+    const response = await fetch("/api/surat", { cache: "no-store" });
+    if (!response.ok) return [];
+    const data = (await response.json().catch(() => ({}))) as { surat?: SuratElektronik[] };
+    if (!Array.isArray(data.surat)) return [];
+    return data.surat.map((item) => normalizeSuratRecord(item));
+}
+
+/** Fetch a single surat by its public tracking ID from the server. */
+export async function getSuratByTrackingIdFromServer(trackingId: string): Promise<SuratElektronik | null> {
+    const clean = trackingId.trim();
+    if (!clean) return null;
+    const response = await fetch(`/api/surat?trackingId=${encodeURIComponent(clean)}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const data = (await response.json().catch(() => ({}))) as { surat?: SuratElektronik | null };
+    return data.surat ? normalizeSuratRecord(data.surat) : null;
+}
+
+/** Find a surat by ID from a pre-fetched list. */
+export function getSuratByIdFromList(id: string, list: SuratElektronik[]): SuratElektronik | null {
+    return list.find((s) => s.id === id) || null;
+}
 
 // Roman numerals for months
 const ROMAN_MONTHS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
@@ -98,42 +244,25 @@ function generateTrackingId(): string {
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
-    const existing = getSuratList();
-    const thisMonth = existing.filter(s => s.trackingId?.startsWith(`TRK-${year}-${month}`)).length + 1;
-    return `TRK-${year}-${month}-${String(thisMonth).padStart(4, "0")}`;
+
+    const randomBlock = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+    // We no longer check localStorage for collisions; the server enforces uniqueness.
+    return `TRK-${year}-${month}-${randomBlock()}`;
 }
 
 // Generate official Nomor Surat: 001/SE.SPm/DISKOMINFO/I/2026
-function generateNomorSurat(kodeSurat: string): string {
+// Counter is approximate (based on year); the server ensures true uniqueness.
+function generateNomorSurat(kodeSurat: string, existingCount: number): string {
     const now = new Date();
     const year = now.getFullYear();
     const month = ROMAN_MONTHS[now.getMonth()];
-    const existing = getSuratList();
-    const count = existing.filter(s => {
-        const parts = s.nomorSurat?.split("/");
-        return parts && parts[parts.length - 1] === String(year);
-    }).length + 1;
+    const count = existingCount + 1;
     return `${String(count).padStart(3, "0")}/SE.${kodeSurat}/DISKOMINFO/${month}/${year}`;
 }
 
-// Get all surat from localStorage
-export function getSuratList(): SuratElektronik[] {
-    if (typeof window === "undefined") return [];
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-}
-
-// Get surat by tracking ID
-export function getSuratByTrackingId(trackingId: string): SuratElektronik | null {
-    const suratList = getSuratList();
-    return suratList.find(s => s.trackingId?.toLowerCase() === trackingId.toLowerCase()) || null;
-}
-
-// Get surat by ID
-export function getSuratById(id: string): SuratElektronik | null {
-    const suratList = getSuratList();
-    return suratList.find(s => s.id === id) || null;
-}
+// ---------------------------------------------------------------------------
+// Mutations — all go through the server
+// ---------------------------------------------------------------------------
 
 // Input type for adding surat
 type AddSuratInput = {
@@ -150,21 +279,21 @@ type AddSuratInput = {
     prioritas?: Prioritas;
 };
 
-// Add a new surat
-export function addSurat(surat: AddSuratInput): SuratElektronik {
+/** Add a new surat — goes directly to the server. */
+export async function addSurat(surat: AddSuratInput): Promise<SuratElektronik> {
     const now = new Date();
     const kodeSurat = KODE_SURAT[surat.jenisSurat] || "SE";
 
-    const newSurat: SuratElektronik = {
+    const createDraftSurat = (): SuratElektronik => ({
         ...surat,
-        id: crypto.randomUUID(),
+        id: createClientSafeId("surat"),
         trackingId: generateTrackingId(),
-        nomorSurat: generateNomorSurat(kodeSurat),
+        nomorSurat: generateNomorSurat(kodeSurat, 0),
         kodeSurat,
-        klasifikasi: "000", // Default to Umum
+        klasifikasi: "000",
         lampiran: surat.lampiran || [],
         prioritas: surat.prioritas || "normal",
-        slaDeadline: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3-day SLA
+        slaDeadline: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
         status: "submitted",
         statusHistory: [{
             status: "submitted",
@@ -174,47 +303,126 @@ export function addSurat(surat: AddSuratInput): SuratElektronik {
         timestamp: now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
         date: now.toISOString().split("T")[0],
         lastUpdated: now.toISOString(),
-    };
+    });
 
-    const suratList = getSuratList();
-    suratList.unshift(newSurat);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(suratList));
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        const draft = createDraftSurat();
+        try {
+            const savedSurat = await pushSuratToServer(draft);
+            return savedSurat;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "";
+            if (/trackingId|Unique constraint failed/i.test(message)) {
+                lastError = error instanceof Error ? error : new Error("Tracking ID bentrok, mencoba ulang.");
+                continue;
+            }
+            throw error;
+        }
+    }
 
-    return newSurat;
+    throw lastError || new Error("Gagal menghasilkan tracking ID unik untuk surat.");
 }
 
-// Update surat status with history
-export function updateSuratStatus(id: string, status: SuratElektronik["status"], note?: string): void {
-    const suratList = getSuratList();
-    const index = suratList.findIndex(s => s.id === id);
-    if (index !== -1) {
-        const now = new Date();
-        suratList[index].status = status;
-        suratList[index].lastUpdated = now.toISOString();
-        suratList[index].statusHistory = suratList[index].statusHistory || [];
-        suratList[index].statusHistory.push({
-            status,
-            timestamp: now.toISOString(),
-            note: note || getDefaultStatusNote(status)
-        });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(suratList));
+/** Update surat status — goes through the server transition endpoint. */
+export async function updateSuratStatus(id: string, status: SuratElektronik["status"], note?: string): Promise<SuratElektronik> {
+    const nextStatus = normalizeSuratStatus(status);
+    if (!nextStatus) {
+        throw new Error("Status surat tidak valid.");
     }
+
+    // The server validates the transition; we simply call it.
+    return await transitionSuratStatusOnServer({
+        id,
+        toStatus: nextStatus,
+        note: note || getDefaultStatusNote(nextStatus),
+    });
 }
 
 // Get default status notes
 function getDefaultStatusNote(status: string): string {
     switch (status) {
-        case "received": return "Surat telah diterima oleh admin";
-        case "processing": return "Surat sedang dalam proses";
-        case "completed": return "Surat telah selesai diproses";
+        case "verified": return "Surat telah diverifikasi oleh resepsionis/admin";
+        case "in_review": return "Surat sedang ditelaah operator";
+        case "paraf": return "Surat sudah diparaf pejabat berwenang";
+        case "approved": return "Surat telah disetujui";
         case "archived": return "Surat telah diarsipkan";
         default: return "";
     }
 }
 
-// Get statistics
-export function getSuratStats() {
-    const suratList = getSuratList();
+/** Assign disposisi — saves to server. */
+export async function assignDisposisi(id: string, disposisi: Omit<Disposisi, "tanggalDisposisi">, suratList: SuratElektronik[]): Promise<SuratElektronik> {
+    const existing = suratList.find((s) => s.id === id);
+    if (!existing) throw new Error("Surat tidak ditemukan.");
+
+    const now = new Date();
+    const updated: SuratElektronik = {
+        ...existing,
+        disposisi: {
+            ...disposisi,
+            tanggalDisposisi: now.toISOString(),
+        },
+        lastUpdated: now.toISOString(),
+        statusHistory: [
+            ...existing.statusHistory,
+            {
+                status: existing.status,
+                timestamp: now.toISOString(),
+                note: `Didisposisikan ke ${disposisi.assignedTo}`,
+            },
+        ],
+    };
+
+    return await pushSuratToServer(updated);
+}
+
+/** Add admin response note — saves to server. */
+export async function addResponseNote(id: string, note: string, suratList: SuratElektronik[]): Promise<SuratElektronik> {
+    const existing = suratList.find((s) => s.id === id);
+    if (!existing) throw new Error("Surat tidak ditemukan.");
+
+    const now = new Date();
+    const updated: SuratElektronik = {
+        ...existing,
+        responseNote: note,
+        lastUpdated: now.toISOString(),
+        statusHistory: [
+            ...existing.statusHistory,
+            {
+                status: existing.status,
+                timestamp: now.toISOString(),
+                note: `Respon ditambahkan: ${note.substring(0, 50)}...`,
+            },
+        ],
+    };
+
+    return await pushSuratToServer(updated);
+}
+
+/** Update surat priority — saves to server. */
+export async function updatePrioritas(id: string, prioritas: Prioritas, suratList: SuratElektronik[]): Promise<SuratElektronik> {
+    const existing = suratList.find((s) => s.id === id);
+    if (!existing) throw new Error("Surat tidak ditemukan.");
+
+    const now = new Date();
+    const slaDays = prioritas === "tinggi" ? 1 : prioritas === "normal" ? 3 : 5;
+    const updated: SuratElektronik = {
+        ...existing,
+        prioritas,
+        slaDeadline: new Date(now.getTime() + slaDays * 24 * 60 * 60 * 1000).toISOString(),
+        lastUpdated: now.toISOString(),
+    };
+
+    return await pushSuratToServer(updated);
+}
+
+// ---------------------------------------------------------------------------
+// Pure stats helpers — operate on a given list, no localStorage
+// ---------------------------------------------------------------------------
+
+/** Get statistics from a pre-fetched list. */
+export function getSuratStats(suratList: SuratElektronik[]) {
     const today = new Date().toISOString().split("T")[0];
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
@@ -223,9 +431,10 @@ export function getSuratStats() {
 
     const statusCounts = {
         submitted: suratList.filter(s => s.status === "submitted").length,
-        received: suratList.filter(s => s.status === "received").length,
-        processing: suratList.filter(s => s.status === "processing").length,
-        completed: suratList.filter(s => s.status === "completed").length,
+        verified: suratList.filter(s => s.status === "verified").length,
+        in_review: suratList.filter(s => s.status === "in_review").length,
+        paraf: suratList.filter(s => s.status === "paraf").length,
+        approved: suratList.filter(s => s.status === "approved").length,
         archived: suratList.filter(s => s.status === "archived").length,
     };
 
@@ -246,9 +455,8 @@ export function getSuratStats() {
     };
 }
 
-// Export to CSV
-export function exportSuratToCSV(): string {
-    const suratList = getSuratList();
+/** Export to CSV from a given list. */
+export function exportSuratToCSV(suratList: SuratElektronik[]): string {
     const headers = ["Tracking ID", "No. Surat", "Tanggal", "Waktu", "Nama Pengirim", "Email", "Telepon", "Instansi", "Alamat", "Perihal", "Jenis Surat", "Tujuan Unit", "Isi Surat", "Lampiran", "Status"];
     const rows = suratList.map((s) => [
         s.trackingId || "",
@@ -272,62 +480,18 @@ export function exportSuratToCSV(): string {
     return csvContent;
 }
 
-// Clear all data (for testing)
-export function clearSuratList(): void {
-    localStorage.removeItem(STORAGE_KEY);
-}
-
-// Assign disposisi to a surat
-export function assignDisposisi(id: string, disposisi: Omit<Disposisi, "tanggalDisposisi">): void {
-    const suratList = getSuratList();
-    const index = suratList.findIndex(s => s.id === id);
-    if (index !== -1) {
-        const now = new Date();
-        suratList[index].disposisi = {
-            ...disposisi,
-            tanggalDisposisi: now.toISOString(),
-        };
-        suratList[index].lastUpdated = now.toISOString();
-        suratList[index].statusHistory.push({
-            status: suratList[index].status,
-            timestamp: now.toISOString(),
-            note: `Didisposisikan ke ${disposisi.assignedTo}`
-        });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(suratList));
-    }
-}
-
-// Add admin response note
-export function addResponseNote(id: string, note: string): void {
-    const suratList = getSuratList();
-    const index = suratList.findIndex(s => s.id === id);
-    if (index !== -1) {
-        const now = new Date();
-        suratList[index].responseNote = note;
-        suratList[index].lastUpdated = now.toISOString();
-        suratList[index].statusHistory.push({
-            status: suratList[index].status,
-            timestamp: now.toISOString(),
-            note: `Respon ditambahkan: ${note.substring(0, 50)}...`
-        });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(suratList));
-    }
-}
-
-// Get overdue surat (past SLA deadline and not completed/archived)
-export function getOverdueSurat(): SuratElektronik[] {
-    const suratList = getSuratList();
+/** Get overdue surat from a given list. */
+export function getOverdueSurat(suratList: SuratElektronik[]): SuratElektronik[] {
     const now = new Date().toISOString();
     return suratList.filter(s =>
         s.slaDeadline &&
         s.slaDeadline < now &&
-        !["completed", "archived"].includes(s.status)
+        !["approved", "archived"].includes(s.status)
     );
 }
 
-// Get unit distribution statistics
-export function getUnitStats(): { unit: string; count: number; percentage: number }[] {
-    const suratList = getSuratList();
+/** Get unit distribution statistics from a given list. */
+export function getUnitStats(suratList: SuratElektronik[]): { unit: string; count: number; percentage: number }[] {
     const unitCounts: Record<string, number> = {};
 
     suratList.forEach(s => {
@@ -346,9 +510,8 @@ export function getUnitStats(): { unit: string; count: number; percentage: numbe
         .sort((a, b) => b.count - a.count);
 }
 
-// Get hourly distribution for today
-export function getHourlyStats(): number[] {
-    const suratList = getSuratList();
+/** Get hourly distribution for today from a given list. */
+export function getHourlyStats(suratList: SuratElektronik[]): number[] {
     const today = new Date().toISOString().split("T")[0];
     const hourlyData = new Array(24).fill(0);
 
@@ -363,151 +526,3 @@ export function getHourlyStats(): number[] {
 
     return hourlyData;
 }
-
-// Update surat priority
-export function updatePrioritas(id: string, prioritas: Prioritas): void {
-    const suratList = getSuratList();
-    const index = suratList.findIndex(s => s.id === id);
-    if (index !== -1) {
-        const now = new Date();
-        // Recalculate SLA based on new priority
-        const slaDays = prioritas === "tinggi" ? 1 : prioritas === "normal" ? 3 : 5;
-        suratList[index].prioritas = prioritas;
-        suratList[index].slaDeadline = new Date(now.getTime() + slaDays * 24 * 60 * 60 * 1000).toISOString();
-        suratList[index].lastUpdated = now.toISOString();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(suratList));
-    }
-}
-
-// Seed dummy data for testing
-// Seed dummy data for testing
-export function seedDummySurat(): void {
-    const names = ["Andi Putra", "Budi Hartono", "Citra Dewi", "Dian Sari", "Eko Prasetyo", "Fajar Nugraha", "Gita Pertiwi"];
-    const instansis = ["PT Telkom Indonesia", "Universitas Hasanuddin", "Bank BRI", "Dinas Pendidikan", "CV Teknologi Maju", "Kementerian Kominfo", "Polri"];
-    const units = ["Bidang IKP", "Bidang Aptika", "Sekretariat", "Bidang Statistik", "Bidang E-Government"];
-    const now = new Date();
-    const romanMonths = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
-
-    const suratList: SuratElektronik[] = [];
-
-    // Helper to add days to a date
-    const addDays = (date: Date, days: number) => {
-        const result = new Date(date);
-        result.setDate(result.getDate() + days);
-        return result;
-    };
-
-    // Helper to create a surat
-    const createSurat = (
-        daysAgo: number,
-        prioritas: Prioritas,
-        status: SuratElektronik["status"],
-        subject: string,
-        withDisposisi: boolean = false
-    ): SuratElektronik => {
-        const date = addDays(now, -daysAgo);
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const slaDays = prioritas === "tinggi" ? 1 : prioritas === "normal" ? 3 : 5;
-        const slaDeadline = addDays(date, slaDays).toISOString();
-
-        const id = crypto.randomUUID();
-        const history: StatusChange[] = [{
-            status: "submitted",
-            timestamp: date.toISOString(),
-            note: "Surat elektronik berhasil dikirim"
-        }];
-
-        if (["received", "processing", "completed", "archived"].includes(status)) {
-            history.push({
-                status: "received",
-                timestamp: addDays(date, 0.1).toISOString(),
-                note: "Surat diterima oleh admin"
-            });
-        }
-
-        let disposisi: Disposisi | undefined = undefined;
-        if (withDisposisi || ["processing", "completed", "archived"].includes(status)) {
-            history.push({
-                status: "processing",
-                timestamp: addDays(date, 0.2).toISOString(),
-                note: "Surat sedang diproses"
-            });
-            disposisi = {
-                assignedTo: "Budi Santoso (Staff Administrasi)",
-                instruksi: ["Tindak Lanjuti", "Koordinasikan"],
-                catatan: "Mohon segera diproses sesuai SOP.",
-                tanggalDisposisi: addDays(date, 0.2).toISOString(),
-                disposisiOleh: "Admin Utama"
-            };
-        }
-
-        if (["completed", "archived"].includes(status)) {
-            history.push({
-                status: "completed",
-                timestamp: addDays(date, 1).toISOString(),
-                note: "Selesai ditindaklanjuti"
-            });
-        }
-
-        const unit = units[Math.floor(Math.random() * units.length)];
-
-        return {
-            id,
-            trackingId: `TRK-${date.getFullYear()}-${month}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
-            nomorSurat: `${String(Math.floor(Math.random() * 100) + 1).padStart(3, "0")}/SE/DISKOMINFO/${romanMonths[date.getMonth()]}/${date.getFullYear()}`,
-            namaPengirim: names[Math.floor(Math.random() * names.length)],
-            emailPengirim: "user@example.com",
-            teleponPengirim: "08123456789",
-            instansiPengirim: instansis[Math.floor(Math.random() * instansis.length)],
-            alamatPengirim: "Jl. Merdeka No. 1, Kota Makassar",
-            perihal: subject,
-            jenisSurat: "Permohonan",
-            kodeSurat: "SPm",
-            klasifikasi: "000",
-            tujuanUnit: unit,
-            isiSurat: "Dengan hormat, kami mengajukan permohonan...",
-            lampiran: [],
-            prioritas,
-            slaDeadline,
-            status,
-            statusHistory: history,
-            disposisi,
-            timestamp: date.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }).replace('.', ':'),
-            date: date.toISOString().split("T")[0],
-            lastUpdated: date.toISOString(),
-        };
-    };
-
-    // 1. OVERDUE High Priority (Submitted 3 days ago, SLA 1 day) -> Status Received (not completed)
-    suratList.push(createSurat(3, "tinggi", "received", "Permohonan Data Segera (URGENT OVERDUE)"));
-
-    // 2. WARNING Normal Priority (Submitted 2 days ago, SLA 3 days) -> Status Processing
-    suratList.push(createSurat(2, "normal", "processing", "Undangan Rapat Koordinasi (WARNING)", true));
-
-    // 3. SAFE Low Priority (Submitted 1 day ago, SLA 5 days) -> Status Submitted
-    suratList.push(createSurat(1, "rendah", "submitted", "Laporan Bulanan Rutin"));
-
-    // 4. Completed High Priority
-    suratList.push(createSurat(5, "tinggi", "completed", "Permohonan Fasilitasi Zoom (Selesai)", true));
-
-    // 5. Archived Normal Priority
-    suratList.push(createSurat(10, "normal", "archived", "Undangan Sosialisasi (Arsip)", true));
-
-    // 6. Recently Submitted High Priority
-    suratList.push(createSurat(0, "tinggi", "submitted", "Laporan Insiden Keamanan (BARU)"));
-
-    // Add some random ones to fill up
-    for (let i = 0; i < 8; i++) {
-        const p = Math.random() > 0.7 ? "tinggi" : Math.random() > 0.4 ? "normal" : "rendah";
-        const s = ["submitted", "received", "processing", "completed"][Math.floor(Math.random() * 4)] as SuratElektronik["status"];
-        suratList.push(createSurat(Math.floor(Math.random() * 7), p, s, `Surat Umum #${i + 1}`, s === "processing" || s === "completed"));
-    }
-
-    // Sort by date desc
-    suratList.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(suratList));
-    // Trigger storage event to update components if listening
-    window.dispatchEvent(new Event("storage"));
-}
-

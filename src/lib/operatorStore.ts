@@ -1,5 +1,7 @@
 "use client";
 
+import { createClientSafeId } from "@/lib/id";
+
 export interface Operator {
     id: string;
     name: string;
@@ -24,7 +26,7 @@ export function addOperator(op: Omit<Operator, "id" | "timestamp" | "date">): Op
     const now = new Date();
     const newOp: Operator = {
         ...op,
-        id: crypto.randomUUID(),
+        id: createClientSafeId("operator"),
         timestamp: now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
         date: now.toISOString().split("T")[0],
     };
@@ -78,7 +80,7 @@ export function seedDummyOperators(): void {
         const date = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
 
         ops.push({
-            id: crypto.randomUUID(),
+            id: createClientSafeId("operator"),
             name: names[Math.floor(Math.random() * names.length)],
             instansi: instansis[Math.floor(Math.random() * instansis.length)],
             bidang: bidangs[Math.floor(Math.random() * bidangs.length)],
@@ -97,4 +99,3 @@ export function seedDummyOperators(): void {
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(ops));
 }
-

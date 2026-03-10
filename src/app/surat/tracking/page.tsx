@@ -4,14 +4,15 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { getSuratByTrackingId, SuratElektronik, Prioritas } from "@/lib/suratStore";
+import { getSuratByTrackingIdFromServer, SuratElektronik, Prioritas } from "@/lib/suratStore";
 import { QRCodeSVG } from "qrcode.react";
 
 const STATUS_CONFIG: Record<SuratElektronik["status"], { label: string; chip: string; dot: string }> = {
     submitted: { label: "Terkirim", chip: "bg-[#009FA9]/10 text-[#009FA9] border border-[#009FA9]/20", dot: "bg-[#009FA9]" },
-    received: { label: "Diterima", chip: "bg-sky-50 text-sky-700 border border-sky-200", dot: "bg-sky-500" },
-    processing: { label: "Diproses", chip: "bg-amber-50 text-amber-700 border border-amber-200", dot: "bg-amber-500" },
-    completed: { label: "Selesai", chip: "bg-emerald-50 text-emerald-700 border border-emerald-200", dot: "bg-emerald-500" },
+    verified: { label: "Terverifikasi", chip: "bg-sky-50 text-sky-700 border border-sky-200", dot: "bg-sky-500" },
+    in_review: { label: "Diproses", chip: "bg-amber-50 text-amber-700 border border-amber-200", dot: "bg-amber-500" },
+    paraf: { label: "Paraf", chip: "bg-indigo-50 text-indigo-700 border border-indigo-200", dot: "bg-indigo-500" },
+    approved: { label: "Disetujui", chip: "bg-emerald-50 text-emerald-700 border border-emerald-200", dot: "bg-emerald-500" },
     archived: { label: "Diarsipkan", chip: "bg-slate-100 text-slate-600 border border-slate-200", dot: "bg-slate-400" },
 };
 
@@ -21,7 +22,7 @@ const PRIORITY_CONFIG: Record<Prioritas, { label: string; chip: string; dot: str
     rendah: { label: "Prioritas Rendah", chip: "bg-emerald-50 text-emerald-700 border border-emerald-200", dot: "bg-emerald-500" },
 };
 
-const STATUS_ORDER: SuratElektronik["status"][] = ["submitted", "received", "processing", "completed", "archived"];
+const STATUS_ORDER: SuratElektronik["status"][] = ["submitted", "verified", "in_review", "paraf", "approved", "archived"];
 
 const formatDate = (isoStr: string) => {
     return new Date(isoStr).toLocaleDateString("id-ID", {
@@ -47,7 +48,7 @@ const formatFileSize = (bytes: number) => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const isTrackingIdValid = (value: string) => /^TRK-\d{4}-\d{2}-\d{4}$/i.test(value);
+const isTrackingIdValid = (value: string) => /^TRK-\d{4}-\d{2}-[A-Z0-9]{4,8}$/i.test(value);
 
 const getSlaInfo = (deadline?: string) => {
     if (!deadline) {
@@ -109,12 +110,12 @@ function TrackingContent() {
         setHasSearched(true);
         setSurat(null);
 
-        setTimeout(() => {
-            const result = getSuratByTrackingId(searchId);
-            setSurat(result);
-            if (!result) setError("Data tidak ditemukan");
+        (async () => {
+            const serverResult = await getSuratByTrackingIdFromServer(searchId);
+            setSurat(serverResult);
+            if (!serverResult) setError("Data tidak ditemukan");
             setIsSearching(false);
-        }, 500);
+        })();
     };
 
     const currentStatusIndex = surat ? STATUS_ORDER.indexOf(surat.status) : -1;
@@ -149,9 +150,11 @@ function TrackingContent() {
         }
     };
 
-    const downloadAttachment = (file: { filename: string; data: string }) => {
+    const downloadAttachment = (file: { filename: string; fileUrl?: string; data?: string }) => {
+        const href = file.fileUrl || file.data;
+        if (!href) return;
         const link = document.createElement("a");
-        link.href = file.data;
+        link.href = href;
         link.download = file.filename;
         link.click();
     };
@@ -368,7 +371,7 @@ function TrackingContent() {
 
                                         <div>
                                             <h2 className="text-slate-900 text-xl lg:text-2xl font-semibold leading-relaxed line-clamp-2">
-                                                "{surat.perihal}"
+                                                &quot;{surat.perihal}&quot;
                                             </h2>
                                         </div>
 

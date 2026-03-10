@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getCases, syncCasesFromExistingData, type CaseItem } from "@/lib/caseStore";
-import { getOrgUnits } from "@/lib/orgUnitStore";
+import { getCases, hydrateCasesFromServer, syncCasesFromExistingData, type CaseItem } from "@/lib/caseStore";
+import { fetchOrgDataFromServer, getOrgUnits } from "@/lib/orgUnitStore";
 
 const Icons = {
     refresh: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>,
@@ -32,7 +32,7 @@ export default function IntakePage() {
     const [cases, setCases] = useState<CaseItem[]>([]);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [syncInfo, setSyncInfo] = useState<{ visitors: number; surat: number } | null>(null);
-    const orgUnits = useMemo(() => getOrgUnits(), []);
+    const [orgUnits, setOrgUnits] = useState(() => getOrgUnits());
 
     const load = () => {
         setCases(getCases());
@@ -40,11 +40,16 @@ export default function IntakePage() {
     };
 
     useEffect(() => {
-        // First time: ensure we have cases for existing visitor/surat records.
-        const info = syncCasesFromExistingData();
-        setSyncInfo(info.visitors || info.surat ? info : null);
-        load();
-        const i = setInterval(load, 30000);
+        const boot = async () => {
+            const orgData = await fetchOrgDataFromServer();
+            setOrgUnits(orgData.units);
+            await hydrateCasesFromServer();
+            const info = await syncCasesFromExistingData();
+            setSyncInfo(info.visitors || info.surat ? info : null);
+            load();
+        };
+        void boot();
+        const i = setInterval(() => { void hydrateCasesFromServer().then(load); }, 30000);
         return () => clearInterval(i);
     }, []);
 
@@ -77,8 +82,8 @@ export default function IntakePage() {
                         Refresh
                     </button>
                     <button
-                        onClick={() => {
-                            const info = syncCasesFromExistingData();
+                        onClick={async () => {
+                            const info = await syncCasesFromExistingData();
                             setSyncInfo(info);
                             load();
                         }}
@@ -188,4 +193,3 @@ export default function IntakePage() {
         </div>
     );
 }
-

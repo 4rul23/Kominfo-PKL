@@ -6,7 +6,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     ATTENDANCE_UPDATED_EVENT,
     addAttendanceEntry,
+    getActiveAttendanceEvent,
+    getAttendanceEvents,
     getAttendanceSnapshot,
+    type AttendanceEvent,
     type AttendanceEntry,
     type ParticipantQuotaStatus,
     validateAttendanceName,
@@ -31,6 +34,7 @@ function digitsOnly(value: string): string {
 
 interface AttendanceWizardProps {
     onClose: () => void;
+    preferredEventCode?: string;
 }
 
 interface WizardData {
@@ -42,7 +46,7 @@ interface WizardData {
     selfieDataUrl: string | null;
 }
 
-export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
+export default function AttendanceWizard({ onClose, preferredEventCode = "" }: AttendanceWizardProps) {
     const [step, setStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
@@ -52,6 +56,9 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
     const [isParticipantPanelOpen, setIsParticipantPanelOpen] = useState(false);
     const [participantQuotaMap, setParticipantQuotaMap] = useState<Record<string, ParticipantQuotaStatus>>({});
     const [participantRoleCountMap, setParticipantRoleCountMap] = useState<Record<string, Record<string, number>>>({});
+    const [activeEvent, setActiveEvent] = useState<AttendanceEvent | null>(null);
+    const [events, setEvents] = useState<AttendanceEvent[]>([]);
+    const [selectedEventCode, setSelectedEventCode] = useState("");
     const [data, setData] = useState<WizardData>({
         name: "",
         phoneNumber: "",
@@ -71,6 +78,10 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
     const selectedParticipant = useMemo(
         () => LONTARA_MEETING_PARTICIPANTS.find((item) => item.id === data.participantId) ?? null,
         [data.participantId],
+    );
+    const selectedEvent = useMemo(
+        () => events.find((item) => item.code === selectedEventCode) ?? null,
+        [events, selectedEventCode],
     );
 
     const filteredParticipants = useMemo(() => {
@@ -102,6 +113,8 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         : null;
 
     const isRoleRequired = selectedRoleOptions.length > 0;
+    const activeEventSource = selectedEvent?.code || activeEvent?.code || ATTENDANCE_SOURCE;
+    const activeEventName = selectedEvent?.name || activeEvent?.name || "Koordinasi Lontara+";
     const selectedRoleStatus = selectedRoleStatuses.find((role) => role.role === data.participantRole);
     const isRoleValid = !isRoleRequired || Boolean(selectedRoleStatus && !selectedRoleStatus.isFull);
     const isNameValid = nameValidation.isValid;
@@ -146,9 +159,55 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
 
     useEffect(() => {
         let cancelled = false;
+        async function loadEventsAndActiveEvent() {
+            try {
+                const [eventList, active] = await Promise.all([
+                    getAttendanceEvents(),
+                    getActiveAttendanceEvent(),
+                ]);
+                if (cancelled) return;
+                setEvents(eventList);
+                setActiveEvent(active);
+                const preferred = preferredEventCode.trim();
+                if (preferred && eventList.some((item) => item.code === preferred)) {
+                    setSelectedEventCode(preferred);
+                    return;
+                }
+                if (active?.code) {
+                    setSelectedEventCode(active.code);
+                    return;
+                }
+                if (eventList[0]?.code) {
+                    setSelectedEventCode(eventList[0].code);
+                    return;
+                }
+                setSelectedEventCode(ATTENDANCE_SOURCE);
+            } catch {
+                if (cancelled) return;
+                setActiveEvent(null);
+                setEvents([]);
+                setSelectedEventCode(ATTENDANCE_SOURCE);
+            }
+        }
+        loadEventsAndActiveEvent();
+        return () => {
+            cancelled = true;
+        };
+    }, [preferredEventCode]);
+
+    useEffect(() => {
+        if (!preferredEventCode.trim()) return;
+        const preferred = preferredEventCode.trim();
+        if (events.some((item) => item.code === preferred)) {
+            setSelectedEventCode(preferred);
+        }
+    }, [preferredEventCode, events]);
+
+    useEffect(() => {
+        let cancelled = false;
         async function loadQuotaData() {
             try {
-                const snapshot = await getAttendanceSnapshot(ATTENDANCE_SOURCE);
+                const snapshot = await getAttendanceSnapshot(activeEventSource);
                 if (cancelled) return;
                 setParticipantQuotaMap(snapshot.quotaMap);
                 setParticipantRoleCountMap(snapshot.roleCountMap);
@@ -162,7 +221,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
         return () => {
             cancelled = true;
         };
-    }, [quotaSyncTick]);
+    }, [quotaSyncTick, activeEventSource]);
 
     useEffect(() => {
         const syncQuota = () => setQuotaSyncTick((prev) => prev + 1);
@@ -322,7 +381,7 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                 participantLabel: selectedParticipant.label,
                 participantRole: data.participantRole || "-",
                 selfieDataUrl: data.selfieDataUrl,
-                source: ATTENDANCE_SOURCE,
+                source: activeEventSource,
             });
 
             setSubmittedEntry(created);
@@ -351,7 +410,20 @@ export default function AttendanceWizard({ onClose }: AttendanceWizardProps) {
                         </div>
                         <div>
                             <p className="text-xs font-bold tracking-wider uppercase text-[#991b1b]">Absensi Rapat</p>
-                            <p className="font-bold text-[#172B4D] tracking-tight text-lg">Koordinasi Lontara+</p>
+                            <p className="font-bold text-[#172B4D] tracking-tight text-lg">{activeEventName}</p>
+                            {events.length > 1 && !preferredEventCode.trim() && (
+                                <select
+                                    value={selectedEventCode}
+                                    onChange={(e) => setSelectedEventCode(e.target.value)}
+                                    className="mt-2 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:border-[#009FA9]"
+                                >
+                                    {events.map((item) => (
+                                        <option key={item.id} value={item.code}>
+                                            {item.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
                         </div>
                     </div>
 

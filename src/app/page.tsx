@@ -7,10 +7,13 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ATTENDANCE_UPDATED_EVENT,
+  getAttendanceEvents,
+  getActiveAttendanceEvent,
   getAttendanceSnapshot,
+  type AttendanceEvent,
   type AttendanceEntry,
 } from "@/lib/attendanceStore";
-import { LONTARA_MEETING_PARTICIPANTS } from "@/lib/meetingParticipants";
+import { ATTENDANCE_SOURCE, LONTARA_MEETING_PARTICIPANTS } from "@/lib/meetingParticipants";
 
 function formatTimeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -90,9 +93,61 @@ export default function Home() {
   const [guestListParticipantFilter, setGuestListParticipantFilter] = useState("ALL");
   const [guestListRoleFilter, setGuestListRoleFilter] = useState("ALL");
   const [transitionState, setTransitionState] = useState({ isVisible: false, message: "" });
+  const [activeEvent, setActiveEvent] = useState<AttendanceEvent | null>(null);
+  const [events, setEvents] = useState<AttendanceEvent[]>([]);
+  const [selectedEventCode, setSelectedEventCode] = useState("");
+  const [queryEventCode, setQueryEventCode] = useState("");
+  const activeEventSource = selectedEventCode || activeEvent?.code || ATTENDANCE_SOURCE;
+  const selectedEvent = useMemo(
+    () => events.find((event) => event.code === activeEventSource) ?? activeEvent ?? null,
+    [events, activeEvent, activeEventSource],
+  );
+  const attendancePath = selectedEventCode
+    ? `/e/${encodeURIComponent(selectedEventCode)}/register`
+    : "/attendance";
   const isLoadingAttendanceRef = useRef(false);
   const isStreamConnectedRef = useRef(false);
+  const streamSourceRef = useRef("");
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    setQueryEventCode((url.searchParams.get("event") || "").trim());
+  }, []);
+
+  useEffect(() => {
+    const loadActiveEvent = async () => {
+      try {
+        const [eventList, event] = await Promise.all([
+          getAttendanceEvents(),
+          getActiveAttendanceEvent(),
+        ]);
+        setEvents(eventList);
+        setActiveEvent(event);
+        if (queryEventCode && eventList.some((item) => item.code === queryEventCode)) {
+          setSelectedEventCode(queryEventCode);
+          return;
+        }
+        setSelectedEventCode(event?.code || eventList[0]?.code || ATTENDANCE_SOURCE);
+      } catch {
+        setActiveEvent(null);
+        setEvents([]);
+        setSelectedEventCode(ATTENDANCE_SOURCE);
+      }
+    };
+    void loadActiveEvent();
+  }, [queryEventCode]);
+
+  useEffect(() => {
+    if (!queryEventCode) return;
+    if (!events.some((event) => event.code === queryEventCode)) return;
+    setSelectedEventCode(queryEventCode);
+  }, [queryEventCode, events]);
+
+  useEffect(() => {
+    streamSourceRef.current = activeEventSource;
+  }, [activeEventSource]);
 
   useEffect(() => {
     // Stream is enabled by default. Set NEXT_PUBLIC_ENABLE_ATTENDANCE_STREAM=false to disable explicitly.
@@ -102,7 +157,7 @@ export default function Home() {
       if (isLoadingAttendanceRef.current) return;
       isLoadingAttendanceRef.current = true;
       try {
-        const snapshot = await getAttendanceSnapshot();
+        const snapshot = await getAttendanceSnapshot(activeEventSource);
         setRecentAttendance((prev) => (
           areEntriesEquivalent(prev, snapshot.entries) ? prev : snapshot.entries
         ));
@@ -130,7 +185,10 @@ export default function Home() {
     const connectRealtimeStream = () => {
       if (!enableAttendanceStream) return;
       if (!("EventSource" in window)) return;
-      stream = new EventSource("/api/attendance/stream");
+      const streamSource = streamSourceRef.current;
+      const streamEventCode = streamSource || ATTENDANCE_SOURCE;
+      const streamUrl = `/api/events/${encodeURIComponent(streamEventCode)}/attendance/stream`;
+      stream = new EventSource(streamUrl);
       stream.onopen = () => {
         isStreamConnectedRef.current = true;
       };
@@ -191,7 +249,7 @@ export default function Home() {
       window.removeEventListener(ATTENDANCE_UPDATED_EVENT, handleStorage);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, []);
+  }, [activeEventSource]);
 
   const trendInfo = useMemo(() => {
     const now = new Date();
@@ -376,6 +434,21 @@ export default function Home() {
     toggleGuestList(trigger);
   };
 
+  const switchEvent = (eventCode: string) => {
+    setSelectedEventCode(eventCode);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (!eventCode) {
+        url.searchParams.delete("event");
+      } else {
+        url.searchParams.set("event", eventCode);
+      }
+      const nextPath = `${url.pathname}${url.search}`;
+      router.replace(nextPath, { scroll: false });
+    }
+    setQueryEventCode(eventCode);
+  };
+
   return (
     <>
       <div className="kiosk-viewport">
@@ -433,6 +506,22 @@ export default function Home() {
                   ®
                 </sup>
               </h1>
+              <p className="text-xs mt-1 font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Event: {selectedEvent?.name || "Default Lontara+"}
+              </p>
+              {events.length > 1 && (
+                <select
+                  value={selectedEventCode}
+                  onChange={(e) => switchEvent(e.target.value)}
+                  className="mt-2 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:border-[#009FA9]"
+                >
+                  {events.map((event) => (
+                    <option key={event.id} value={event.code}>
+                      {event.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="flex gap-8 items-center text-right">
               <div className="flex flex-col gap-1 min-w-[140px]">
@@ -491,8 +580,12 @@ export default function Home() {
                     <div className="flex flex-col gap-3 mt-auto">
                       <div className="flex gap-3 flex-wrap">
                         <Link
-                          href="/register"
-                          onClick={(e) => handleNavigation(e, "/register", "Memuat Portal Lobi")}
+                          href="/guest"
+                          onClick={(e) => handleNavigation(
+                            e,
+                            "/guest",
+                            "Memuat Portal Lobi",
+                          )}
                           className="btn-primary !mt-0 inline-flex items-center justify-center">
                           Masuk ke Portal Lobi
                         </Link>
@@ -508,17 +601,30 @@ export default function Home() {
                           Kirim Surat Elektronik
                         </Link>
                       </div>
-                      <Link
-                        href="/surat/tracking"
-                        onClick={(e) => handleNavigation(e, "/surat/tracking", "Memuat Lacak Status")}
-                        className="inline-flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors group"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70 group-hover:opacity-100 transition-opacity">
-                          <circle cx="11" cy="11" r="8" />
-                          <path d="m21 21-4.35-4.35" />
-                        </svg>
-                        Sudah kirim surat? <span className="underline underline-offset-2">Lacak status di sini →</span>
-                      </Link>
+                      <div className="flex flex-wrap gap-x-5 gap-y-2">
+                        <Link
+                          href="/surat/tracking"
+                          onClick={(e) => handleNavigation(e, "/surat/tracking", "Memuat Lacak Status")}
+                          className="inline-flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors group"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70 group-hover:opacity-100 transition-opacity">
+                            <circle cx="11" cy="11" r="8" />
+                            <path d="m21 21-4.35-4.35" />
+                          </svg>
+                          Sudah kirim surat? <span className="underline underline-offset-2">Lacak status di sini →</span>
+                        </Link>
+                        <Link
+                          href={attendancePath}
+                          onClick={(e) => handleNavigation(e, attendancePath, "Memuat Absensi Event")}
+                          className="inline-flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors group"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70 group-hover:opacity-100 transition-opacity">
+                            <path d="M9 11l3 3L22 4" />
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                          </svg>
+                          Mau absensi event? <span className="underline underline-offset-2">Masuk di sini →</span>
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 </motion.article>

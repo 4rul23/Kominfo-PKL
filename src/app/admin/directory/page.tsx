@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getStaffUsers, type StaffUser } from "@/lib/staffStore";
-import { getOrgUnits, getOrgUnitContacts, type OrgUnit } from "@/lib/orgUnitStore";
+import { fetchStaffUsersFromServer, getStaffUsers, type StaffUser } from "@/lib/staffStore";
+import { fetchOrgDataFromServer, getOrgUnits, getOrgUnitContacts, type OrgUnit } from "@/lib/orgUnitStore";
 import { buildWaMeLink } from "@/lib/whatsapp";
 
 const Icons = {
@@ -25,16 +25,20 @@ export default function DirectoryPage() {
     const [instansiFilter, setInstansiFilter] = useState("all");
     const [orgUnitFilter, setOrgUnitFilter] = useState("all");
 
-    const load = () => {
-        setUsers(getStaffUsers());
-        setOrgUnits(getOrgUnits());
-        setContacts(getOrgUnitContacts());
+    const load = (next?: { users?: StaffUser[]; orgUnits?: OrgUnit[]; contacts?: ReturnType<typeof getOrgUnitContacts> }) => {
+        setUsers(next?.users || getStaffUsers());
+        setOrgUnits(next?.orgUnits || getOrgUnits());
+        setContacts(next?.contacts || getOrgUnitContacts());
         setLastUpdated(new Date());
     };
 
     useEffect(() => {
-        load();
-        const i = setInterval(load, 30000);
+        const boot = async () => {
+            const [users, orgData] = await Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]);
+            load({ users, orgUnits: orgData.units, contacts: orgData.contacts });
+        };
+        void boot();
+        const i = setInterval(() => { void Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]).then(([users, orgData]) => load({ users, orgUnits: orgData.units, contacts: orgData.contacts })); }, 30000);
         return () => clearInterval(i);
     }, []);
 
@@ -216,4 +220,3 @@ export default function DirectoryPage() {
         </div>
     );
 }
-

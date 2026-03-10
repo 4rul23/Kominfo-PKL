@@ -1,10 +1,18 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { addSurat, SuratElektronik, Attachment } from "@/lib/suratStore";
 import { createCaseFromSurat } from "@/lib/caseStore";
 import DigitalReceipt from "./DigitalReceipt";
 import Image from "next/image";
+import {
+    ATTACHMENT_ALLOWED_EXTENSIONS,
+    MAX_ATTACHMENT_FILE_BYTES,
+    formatBytes,
+    isAllowedAttachmentExtension,
+    isAllowedAttachmentMime,
+    isDangerousAttachmentExtension,
+} from "@/lib/attachmentPolicy";
 
 interface SuratWizardData {
     namaPengirim: string;
@@ -48,6 +56,8 @@ export default function SuratElektronikWizard({
 }) {
     const [step, setStep] = useState(1);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [submitError, setSubmitError] = useState("");
+    const [uploadError, setUploadError] = useState("");
     const [submittedSurat, setSubmittedSurat] = useState<SuratElektronik | null>(null);
     const [data, setData] = useState<SuratWizardData>({
         namaPengirim: "",
@@ -64,8 +74,22 @@ export default function SuratElektronikWizard({
 
     // File Upload Handler
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setUploadError("");
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
+            if (isDangerousAttachmentExtension(file.name)) {
+                setUploadError(`Ekstensi berbahaya ditolak: ${file.name}`);
+                return;
+            }
+            if (!isAllowedAttachmentMime(file.type) || !isAllowedAttachmentExtension(file.name)) {
+                setUploadError(`Format file tidak didukung: ${file.name}`);
+                return;
+            }
+            if (file.size > MAX_ATTACHMENT_FILE_BYTES) {
+                setUploadError(`Ukuran file melebihi ${formatBytes(MAX_ATTACHMENT_FILE_BYTES)}`);
+                return;
+            }
+
             const reader = new FileReader();
             reader.onload = (ev) => {
                 if (ev.target?.result) {
@@ -106,11 +130,17 @@ export default function SuratElektronikWizard({
     const handleBack = () => setStep(Math.max(1, step - 1));
 
     const handleSubmit = () => {
-        const result = addSurat(data);
-        // Dummy flow: create a case so Resepsionis can triage/assign it.
-        createCaseFromSurat(result);
-        setSubmittedSurat(result);
-        setIsSubmitted(true);
+        setSubmitError("");
+        void (async () => {
+            try {
+                const result = await addSurat(data);
+                createCaseFromSurat(result);
+                setSubmittedSurat(result);
+                setIsSubmitted(true);
+            } catch (error) {
+                setSubmitError(error instanceof Error ? error.message : "Gagal mengirim surat.");
+            }
+        })();
     };
 
     const handleClose = () => {
@@ -129,6 +159,8 @@ export default function SuratElektronikWizard({
             isiSurat: "",
             lampiran: [],
         });
+        setUploadError("");
+        setSubmitError("");
         onClose();
     };
 
@@ -355,10 +387,11 @@ export default function SuratElektronikWizard({
                                         <div className="relative w-16 h-20 bg-white shadow-sm border border-slate-200 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
                                             {data.lampiran[0].type.startsWith("image/") ? (
                                                 <Image
-                                                    src={data.lampiran[0].data}
+                                                    src={data.lampiran[0].fileUrl || data.lampiran[0].data || ""}
                                                     alt="Preview"
                                                     fill
                                                     className="object-cover"
+                                                    unoptimized
                                                 />
                                             ) : (
                                                 <div className="text-red-500">
@@ -384,11 +417,13 @@ export default function SuratElektronikWizard({
                                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                         <svg className="w-8 h-8 mb-3 text-slate-400 group-hover:text-teal-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                                         <p className="text-sm text-slate-500 group-hover:text-teal-600"><span className="font-semibold">Klik untuk upload</span> atau drag & drop</p>
-                                        <p className="text-xs text-slate-400">PDF, JPG, PNG (Max 5MB)</p>
+                                        <p className="text-xs text-slate-400">{ATTACHMENT_ALLOWED_EXTENSIONS.join(", ")} (Max {formatBytes(MAX_ATTACHMENT_FILE_BYTES)})</p>
                                     </div>
-                                    <input type="file" className="hidden" accept=".pdf,image/png,image/jpeg,image/jpg" onChange={handleFileChange} />
+                                    <input type="file" className="hidden" accept={ATTACHMENT_ALLOWED_EXTENSIONS.join(",")} onChange={handleFileChange} />
                                 </label>
                             )}
+                            {uploadError && <p className="text-xs text-red-600 mt-2">{uploadError}</p>}
+                            {submitError && <p className="text-xs text-red-600 mt-2">{submitError}</p>}
                         </div>
                     </div>
                 );
@@ -427,7 +462,7 @@ export default function SuratElektronikWizard({
                                 <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200">
                                     <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-slate-500 flex-shrink-0 overflow-hidden relative">
                                         {data.lampiran[0].type.startsWith("image/") ? (
-                                            <Image src={data.lampiran[0].data} alt="Preview" fill className="object-cover" />
+                                            <Image src={data.lampiran[0].fileUrl || data.lampiran[0].data || ""} alt="Preview" fill className="object-cover" unoptimized />
                                         ) : (
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
                                         )}

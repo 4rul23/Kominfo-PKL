@@ -6,6 +6,18 @@ import { useRouter } from "next/navigation";
 import { addSurat, SuratElektronik, Attachment } from "@/lib/suratStore";
 import { createCaseFromSurat } from "@/lib/caseStore";
 import DigitalReceipt from "@/components/DigitalReceipt";
+import { createClientSafeId } from "@/lib/id";
+import {
+    ATTACHMENT_ALLOWED_EXTENSIONS,
+    ATTACHMENT_ALLOWED_MIME,
+    MAX_ATTACHMENT_COUNT,
+    MAX_ATTACHMENT_FILE_BYTES,
+    MAX_ATTACHMENT_TOTAL_BYTES,
+    formatBytes,
+    isAllowedAttachmentExtension,
+    isAllowedAttachmentMime,
+    isDangerousAttachmentExtension,
+} from "@/lib/attachmentPolicy";
 
 interface SuratData {
     namaPengirim: string;
@@ -20,9 +32,6 @@ interface SuratData {
 }
 
 const TOTAL_STEPS = 6;
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
-const ALLOWED_TYPES = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/jpeg", "image/png"];
-const ALLOWED_EXTENSIONS = [".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"];
 
 const JENIS_SURAT_OPTIONS = [
     { id: "permohonan", label: "Permohonan", desc: "Permintaan data atau layanan" },
@@ -49,6 +58,7 @@ export default function SuratPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
     const [uploadError, setUploadError] = useState<string>("");
+    const [submitError, setSubmitError] = useState<string>("");
     const inputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -76,19 +86,28 @@ export default function SuratPage() {
         if (!files) return;
         setUploadError("");
         const newAttachments: Attachment[] = [];
+        let totalSize = data.lampiran.reduce((sum, file) => sum + file.size, 0);
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            if (data.lampiran.length + newAttachments.length >= 3) {
-                setUploadError("Maksimal 3 file lampiran");
+            if (data.lampiran.length + newAttachments.length >= MAX_ATTACHMENT_COUNT) {
+                setUploadError(`Maksimal ${MAX_ATTACHMENT_COUNT} file lampiran`);
                 break;
             }
-            if (!ALLOWED_TYPES.includes(file.type)) {
+            if (isDangerousAttachmentExtension(file.name)) {
+                setUploadError(`Ekstensi berbahaya ditolak: ${file.name}`);
+                continue;
+            }
+            if (!isAllowedAttachmentMime(file.type) || !isAllowedAttachmentExtension(file.name)) {
                 setUploadError(`Format ${file.name} tidak didukung`);
                 continue;
             }
-            if (file.size > MAX_FILE_SIZE) {
-                setUploadError(`${file.name} terlalu besar (max 5MB)`);
+            if (file.size > MAX_ATTACHMENT_FILE_BYTES) {
+                setUploadError(`${file.name} terlalu besar (maks ${formatBytes(MAX_ATTACHMENT_FILE_BYTES)})`);
+                continue;
+            }
+            if (totalSize + file.size > MAX_ATTACHMENT_TOTAL_BYTES) {
+                setUploadError(`Total lampiran melebihi ${formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)}`);
                 continue;
             }
 
@@ -99,19 +118,20 @@ export default function SuratPage() {
             });
 
             newAttachments.push({
-                id: crypto.randomUUID(),
+                id: createClientSafeId("attachment"),
                 filename: file.name,
                 type: file.type,
                 size: file.size,
                 data: base64,
                 uploadedAt: new Date().toISOString(),
             });
+            totalSize += file.size;
         }
 
         if (newAttachments.length > 0) {
             setData(prev => ({ ...prev, lampiran: [...prev.lampiran, ...newAttachments] }));
         }
-    }, [data.lampiran.length]);
+    }, [data.lampiran]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -139,16 +159,19 @@ export default function SuratPage() {
 
     const handleBack = () => setStep((prev) => Math.max(prev - 1, 1));
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         setIsSubmitting(true);
-        const result = addSurat(data);
-        // Dummy flow: create a case so Resepsionis can triage/assign it.
-        createCaseFromSurat(result);
-        setTimeout(() => {
+        setSubmitError("");
+        try {
+            const result = await addSurat(data);
+            createCaseFromSurat(result);
             setSubmittedSurat(result);
             setIsSubmitting(false);
             setStep(TOTAL_STEPS + 1);
-        }, 1500);
+        } catch (error) {
+            setIsSubmitting(false);
+            setSubmitError(error instanceof Error ? error.message : "Gagal mengirim surat.");
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -364,7 +387,7 @@ export default function SuratPage() {
                                         : "border-gray-300 bg-white hover:border-[#009FA9]/50 hover:bg-gray-50"
                                         }`}
                                 >
-                                    <input ref={fileInputRef} type="file" multiple accept={ALLOWED_EXTENSIONS.join(",")} onChange={(e) => handleFileUpload(e.target.files)} className="hidden" />
+                                    <input ref={fileInputRef} type="file" multiple accept={ATTACHMENT_ALLOWED_EXTENSIONS.join(",")} onChange={(e) => handleFileUpload(e.target.files)} className="hidden" />
                                     <div className="flex flex-col items-center gap-4">
                                         <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${isDragOver ? "bg-[#009FA9] text-white" : "bg-[#009FA9]/10 text-[#009FA9]"}`}>
                                             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -375,7 +398,7 @@ export default function SuratPage() {
                                         </div>
                                         <div className="text-center">
                                             <p className="font-bold text-[#172B4D]">Seret file atau klik untuk memilih</p>
-                                            <p className="text-gray-400 text-sm mt-1">PDF, DOC, JPG, PNG • Max 5MB • Max 3 file</p>
+                                            <p className="text-gray-400 text-sm mt-1">{ATTACHMENT_ALLOWED_MIME.map((mime) => mime.split("/").pop()?.toUpperCase()).filter(Boolean).join(", ")} • Maks {formatBytes(MAX_ATTACHMENT_FILE_BYTES)}/file • Maks {MAX_ATTACHMENT_COUNT} file</p>
                                         </div>
                                     </div>
                                 </div>
@@ -384,6 +407,11 @@ export default function SuratPage() {
                                 {uploadError && (
                                     <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
                                         {uploadError}
+                                    </div>
+                                )}
+                                {submitError && (
+                                    <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+                                        {submitError}
                                     </div>
                                 )}
 

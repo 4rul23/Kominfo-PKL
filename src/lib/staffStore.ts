@@ -5,7 +5,7 @@ export type StaffInstansi = "Diskominfo Makassar" | "UPT Warroom";
 
 export interface StaffUser {
     id: string;
-    username: string; // login identifier (dummy)
+    username: string;
     name: string;
     nipNik: string;
     instansi: StaffInstansi;
@@ -13,7 +13,6 @@ export interface StaffUser {
     orgUnitId: string | null;
     whatsapp: string;
     isActive: boolean;
-    // Dummy only: stored in localStorage. Replace with passwordHash in real backend.
     password: string;
     timestamp: string;
     date: string;
@@ -31,97 +30,41 @@ export function getStaffUserById(id: string): StaffUser | null {
     return getStaffUsers().find((u) => u.id === id) || null;
 }
 
-export function upsertStaffUser(user: Omit<StaffUser, "timestamp" | "date">): StaffUser {
-    const now = new Date();
-    const list = getStaffUsers();
-    const idx = list.findIndex((u) => u.id === user.id);
-    const merged: StaffUser = {
-        ...user,
-        timestamp: now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
-        date: now.toISOString().split("T")[0],
-    };
-    if (idx >= 0) list[idx] = merged;
-    else list.unshift(merged);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    return merged;
+export async function fetchStaffUsersFromServer(): Promise<StaffUser[]> {
+    const response = await fetch("/api/staff-users", { cache: "no-store" });
+    if (!response.ok) return [];
+    const data = (await response.json().catch(() => ({}))) as { users?: StaffUser[] };
+    return Array.isArray(data.users) ? data.users : [];
 }
 
-export function deleteStaffUser(id: string): void {
-    const list = getStaffUsers().filter((u) => u.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
-
-export function authenticateStaff(username: string, password: string): StaffUser | null {
-    const u = getStaffUsers().find((x) => x.username === username);
-    if (!u) return null;
-    if (!u.isActive) return null;
-    if (u.password !== password) return null;
-    return u;
-}
-
-export function seedDefaultStaffUsers(): void {
+export async function hydrateStaffUsersFromServer(): Promise<void> {
     if (typeof window === "undefined") return;
-    const existing = getStaffUsers();
-    if (existing.length > 0) return;
-
-    const now = new Date();
-    const mk = (p: Omit<StaffUser, "timestamp" | "date">): StaffUser => ({
-        ...p,
-        timestamp: now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
-        date: now.toISOString().split("T")[0],
-    });
-
-    const users: StaffUser[] = [
-        mk({
-            id: crypto.randomUUID(),
-            username: "admin",
-            password: "admin123",
-            name: "Administrator",
-            nipNik: "-",
-            instansi: "Diskominfo Makassar",
-            role: "admin",
-            orgUnitId: null,
-            whatsapp: "-",
-            isActive: true,
-        }),
-        mk({
-            id: crypto.randomUUID(),
-            username: "resepsionis",
-            password: "reseps123",
-            name: "Resepsionis UPT Warroom",
-            nipNik: "-",
-            instansi: "UPT Warroom",
-            role: "receptionist",
-            orgUnitId: null,
-            whatsapp: "08xxxxxxxxxx",
-            isActive: true,
-        }),
-        mk({
-            id: crypto.randomUUID(),
-            username: "operator-upt",
-            password: "op123",
-            name: "Operator UPT Warroom",
-            nipNik: "-",
-            instansi: "UPT Warroom",
-            role: "operator",
-            orgUnitId: "UPT_WARROOM",
-            whatsapp: "08xxxxxxxxxx",
-            isActive: true,
-        }),
-        mk({
-            id: crypto.randomUUID(),
-            username: "operator-aptika",
-            password: "op123",
-            name: "Operator Bidang APTIKA",
-            nipNik: "-",
-            instansi: "Diskominfo Makassar",
-            role: "operator",
-            orgUnitId: "BIDANG_APTIKA",
-            whatsapp: "08xxxxxxxxxx",
-            isActive: true,
-        }),
-    ];
-
+    const users = await fetchStaffUsersFromServer();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
 }
 
+export async function upsertStaffUser(user: Omit<StaffUser, "timestamp" | "date">): Promise<StaffUser> {
+    const hasExisting = Boolean(user.id && getStaffUserById(user.id));
+    const response = await fetch("/api/staff-users", {
+        method: hasExisting ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(user),
+    });
+    const data = (await response.json().catch(() => ({}))) as { user?: StaffUser; message?: string };
+    if (!response.ok || !data.user) throw new Error(data.message || "Gagal menyimpan user.");
+    const list = getStaffUsers().filter((u) => u.id !== data.user!.id);
+    list.unshift(data.user);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    return data.user;
+}
+
+export async function deleteStaffUser(id: string): Promise<void> {
+    const response = await fetch(`/api/staff-users?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error("Gagal menghapus user.");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(getStaffUsers().filter((u) => u.id !== id)));
+}
+
+export function authenticateStaff(): StaffUser | null { return null; }
+export async function seedDefaultStaffUsers(): Promise<void> {
+    await hydrateStaffUsersFromServer();
+}

@@ -17,15 +17,15 @@ export default function NotificationsPage() {
     const [list, setList] = useState<WebNotification[]>([]);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-    const load = () => {
+    const load = async () => {
         if (!userId) return;
-        setList(getNotificationsForUser(userId));
+        setList(await getNotificationsForUser(userId));
         setLastUpdated(new Date());
     };
 
     useEffect(() => {
-        load();
-        const i = setInterval(load, 5000);
+        void load();
+        const i = setInterval(() => { void load(); }, 5000);
         return () => clearInterval(i);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
@@ -55,21 +55,21 @@ export default function NotificationsPage() {
                     <p className="text-xs text-slate-400 mt-1">Unread: {unreadCount}</p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                    <button onClick={load} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
+                    <button onClick={() => { void load(); }} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                         {Icons.refresh}
                         Refresh
                     </button>
                     <button
-                        onClick={() => { markAllReadForUser(userId); load(); }}
+                        onClick={async () => { await markAllReadForUser(userId); await load(); }}
                         className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#009FA9]/20"
                     >
                         Mark All Read
                     </button>
                     <button
-                        onClick={() => {
+                        onClick={async () => {
                             if (!confirm("Hapus semua notifikasi?")) return;
-                            clearAllForUser(userId);
-                            load();
+                            await clearAllForUser(userId);
+                            await load();
                         }}
                         className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-[#991b1b] bg-white border-2 border-[#991b1b]/30 rounded-2xl hover:bg-[#991b1b]/10 transition-all shadow-sm"
                     >
@@ -121,7 +121,7 @@ export default function NotificationsPage() {
                                                 )}
                                                 {!n.readAt && (
                                                     <button
-                                                        onClick={() => { markNotificationRead(n.id); load(); }}
+                                                        onClick={async () => { await markNotificationRead(n.id); await load(); }}
                                                         className="inline-flex items-center justify-center px-3 py-2 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all"
                                                     >
                                                         Read
@@ -139,4 +139,3 @@ export default function NotificationsPage() {
         </div>
     );
 }
-

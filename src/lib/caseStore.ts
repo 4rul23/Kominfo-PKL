@@ -1,7 +1,8 @@
 "use client";
 
-import { getSuratById, type SuratElektronik } from "./suratStore";
+import { fetchSuratListFromServer, type SuratElektronik } from "./suratStore";
 import { getVisitors, type Visitor } from "./visitorStore";
+import { createClientSafeId } from "@/lib/id";
 
 export type CaseType = "visitor" | "surat";
 export type CaseStatus = "new" | "triaged" | "assigned" | "acknowledged" | "in_progress" | "escalated" | "closed" | "cancelled";
@@ -54,6 +55,27 @@ export interface CaseEvent {
 const CASES_KEY = "diskominfo_cases";
 const CASE_EVENTS_KEY = "diskominfo_case_events";
 
+async function syncCasesToServer(cases: CaseItem[], events: CaseEvent[]): Promise<void> {
+    await fetch("/api/cases-state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cases, events }),
+    });
+}
+
+export async function hydrateCasesFromServer(): Promise<void> {
+    if (typeof window === "undefined") return;
+    const response = await fetch("/api/cases-state", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = (await response.json().catch(() => ({}))) as { cases?: CaseItem[]; events?: CaseEvent[] };
+    if (Array.isArray(data.cases)) {
+        localStorage.setItem(CASES_KEY, JSON.stringify(data.cases));
+    }
+    if (Array.isArray(data.events)) {
+        localStorage.setItem(CASE_EVENTS_KEY, JSON.stringify(data.events));
+    }
+}
+
 export function getCases(): CaseItem[] {
     if (typeof window === "undefined") return [];
     const raw = localStorage.getItem(CASES_KEY);
@@ -83,10 +105,15 @@ export function getCaseEvents(caseId: string): CaseEvent[] {
 
 function writeCases(list: CaseItem[]) {
     localStorage.setItem(CASES_KEY, JSON.stringify(list));
+    void syncCasesToServer(list, (() => {
+        const raw = localStorage.getItem(CASE_EVENTS_KEY);
+        return raw ? (JSON.parse(raw) as CaseEvent[]) : [];
+    })());
 }
 
 function writeEvents(list: CaseEvent[]) {
     localStorage.setItem(CASE_EVENTS_KEY, JSON.stringify(list));
+    void syncCasesToServer(getCases(), list);
 }
 
 export function addCaseEvent(input: Omit<CaseEvent, "id" | "createdAt">): CaseEvent {
@@ -94,7 +121,7 @@ export function addCaseEvent(input: Omit<CaseEvent, "id" | "createdAt">): CaseEv
     const list: CaseEvent[] = raw ? JSON.parse(raw) : [];
     const e: CaseEvent = {
         ...input,
-        id: crypto.randomUUID(),
+        id: createClientSafeId("case"),
         createdAt: new Date().toISOString(),
     };
     list.push(e);
@@ -133,7 +160,7 @@ export function createCaseFromVisitor(visitor: Visitor): CaseItem {
 
     const nowIso = new Date().toISOString();
     const item: CaseItem = {
-        id: crypto.randomUUID(),
+        id: createClientSafeId("case-event"),
         caseType: "visitor",
         status: "new",
         priority: "normal",
@@ -162,7 +189,7 @@ export function createCaseFromSurat(surat: SuratElektronik): CaseItem {
 
     const nowIso = new Date().toISOString();
     const item: CaseItem = {
-        id: crypto.randomUUID(),
+        id: createClientSafeId("case-event"),
         caseType: "surat",
         status: "new",
         priority: surat.prioritas === "tinggi" ? "high" : "normal",
@@ -185,7 +212,7 @@ export function createCaseFromSurat(surat: SuratElektronik): CaseItem {
     return item;
 }
 
-export function syncCasesFromExistingData(): { visitors: number; surat: number } {
+export async function syncCasesFromExistingData(): Promise<{ visitors: number; surat: number }> {
     const visitors = getVisitors();
     let createdVisitors = 0;
     visitors.forEach((v) => {
@@ -196,12 +223,7 @@ export function syncCasesFromExistingData(): { visitors: number; surat: number }
         }
     });
 
-    const suratList = (() => {
-        // Avoid importing getSuratList to keep bundle smaller; infer via ids we can find later.
-        // In this project we can still rely on getSuratById if caller provides ids; but sync needs list.
-        const raw = localStorage.getItem("diskominfo_surat_elektronik");
-        return raw ? (JSON.parse(raw) as SuratElektronik[]) : [];
-    })();
+    const suratList = await fetchSuratListFromServer();
 
     let createdSurat = 0;
     suratList.forEach((s) => {
@@ -282,7 +304,8 @@ export function getRelatedVisitor(caseItem: CaseItem): Visitor | null {
     return getVisitors().find((v) => v.id === caseItem.relatedVisitorId) || null;
 }
 
-export function getRelatedSurat(caseItem: CaseItem): SuratElektronik | null {
+export async function getRelatedSurat(caseItem: CaseItem): Promise<SuratElektronik | null> {
     if (!caseItem.relatedSuratId) return null;
-    return getSuratById(caseItem.relatedSuratId);
+    const list = await fetchSuratListFromServer();
+    return list.find((s) => s.id === caseItem.relatedSuratId) || null;
 }

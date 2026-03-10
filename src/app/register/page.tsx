@@ -1,14 +1,20 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import AttendanceWizard from "@/components/AttendanceWizard";
-import { useRouter } from "next/navigation";
+import RegisterEventSelector from "@/components/RegisterEventSelector";
+import { normalizeSearchParamEventCode } from "@/lib/attendanceEventUtils";
 
-export default function RegisterPage() {
-    const router = useRouter();
+interface RegisterPageProps {
+    searchParams?: Promise<{
+        event?: string | string[];
+    }>;
+}
 
-    return (
-        <div className="kiosk-viewport bg-[#f8fafc] register-a11y-root">
-            <AttendanceWizard onClose={() => router.push("/")} />
-        </div>
-    );
+export default async function RegisterPage({ searchParams }: RegisterPageProps) {
+    const query = searchParams ? await searchParams : {};
+    const preferredEventCode = normalizeSearchParamEventCode(query?.event);
+    if (preferredEventCode) {
+        redirect(`/e/${encodeURIComponent(preferredEventCode)}/register`);
+    }
+
+    return <RegisterEventSelector />;
 }

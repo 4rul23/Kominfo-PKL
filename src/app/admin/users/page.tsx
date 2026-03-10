@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { deleteStaffUser, getStaffUsers, seedDefaultStaffUsers, upsertStaffUser, type StaffInstansi, type StaffRole, type StaffUser } from "@/lib/staffStore";
-import { getOrgUnits } from "@/lib/orgUnitStore";
+import { useEffect, useState } from "react";
+import { deleteStaffUser, fetchStaffUsersFromServer, getStaffUsers, seedDefaultStaffUsers, upsertStaffUser, type StaffInstansi, type StaffRole, type StaffUser } from "@/lib/staffStore";
+import { fetchOrgDataFromServer, getOrgUnits } from "@/lib/orgUnitStore";
+import { createClientSafeId } from "@/lib/id";
 
 const Icons = {
     trash: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>,
@@ -13,7 +14,7 @@ export default function UsersPage() {
     const [users, setUsers] = useState<StaffUser[]>([]);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-    const orgUnits = useMemo(() => getOrgUnits(), []);
+    const [orgUnits, setOrgUnits] = useState(() => getOrgUnits());
 
     // Create form
     const [username, setUsername] = useState("");
@@ -25,23 +26,31 @@ export default function UsersPage() {
     const [whatsapp, setWhatsapp] = useState("");
     const [password, setPassword] = useState("");
 
-    const load = () => {
-        setUsers(getStaffUsers());
+    const load = (listOverride?: StaffUser[]) => {
+        setUsers(listOverride || getStaffUsers());
         setLastUpdated(new Date());
     };
 
     useEffect(() => {
-        seedDefaultStaffUsers();
-        load();
-        const i = setInterval(load, 30000);
+        const boot = async () => {
+            await seedDefaultStaffUsers();
+            const [users, orgData] = await Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]);
+            if (users.length > 0) {
+                localStorage.setItem("diskominfo_staff_users", JSON.stringify(users));
+            }
+            setOrgUnits(orgData.units);
+            load(users.length > 0 ? users : undefined);
+        };
+        void boot();
+        const i = setInterval(() => { void fetchStaffUsersFromServer().then((users) => load(users.length > 0 ? users : undefined)); }, 30000);
         return () => clearInterval(i);
     }, []);
 
-    const handleCreate = (e: React.FormEvent) => {
+    const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!username.trim() || !name.trim() || !password) return;
-        upsertStaffUser({
-            id: crypto.randomUUID(),
+        await upsertStaffUser({
+            id: createClientSafeId("staff"),
             username: username.trim(),
             name: name.trim(),
             nipNik: (nipNik || "-").trim(),
@@ -60,12 +69,14 @@ export default function UsersPage() {
         setOrgUnitId("");
         setRole("operator");
         setInstansi("Diskominfo Makassar");
-        load();
+        const users = await fetchStaffUsersFromServer();
+        load(users);
     };
 
-    const patchUser = (u: StaffUser, patch: Partial<StaffUser>) => {
-        upsertStaffUser({ ...u, ...patch, id: u.id });
-        load();
+    const patchUser = async (u: StaffUser, patch: Partial<StaffUser>) => {
+        await upsertStaffUser({ ...u, ...patch, id: u.id });
+        const users = await fetchStaffUsersFromServer();
+        load(users);
     };
 
     const orgLabel = (id: string | null) => {
@@ -79,13 +90,13 @@ export default function UsersPage() {
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Users (Staff)</h2>
                     <div className="flex items-center gap-2 mt-1">
-                        <p className="text-sm text-slate-500">Akun dummy untuk login resepsionis/operator/admin</p>
+                        <p className="text-sm text-slate-500">Akun staff backend yang dibagikan lintas browser</p>
                         {lastUpdated && (
                             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Updated: {lastUpdated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
                         )}
                     </div>
                 </div>
-                <button onClick={load} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
+                <button onClick={() => load()} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                     {Icons.refresh}
                     Refresh
                 </button>
@@ -114,12 +125,12 @@ export default function UsersPage() {
                             ))}
                         </select>
                         <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="WhatsApp (08xxx / +62xxx)" className="md:col-span-2 px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9]" />
-                        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (dummy)" type="password" className="md:col-span-1 px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9]" />
+                        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="md:col-span-1 px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9]" />
                         <button type="submit" className="md:col-span-6 px-4 py-3 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#009FA9]/20">
                             Tambah User
                         </button>
                     </form>
-                    <p className="text-xs text-slate-400 mt-3">Catatan: password disimpan plaintext di localStorage untuk demo. Nanti diganti backend + hash.</p>
+                    <p className="text-xs text-slate-400 mt-3">Password sekarang disimpan di backend dan dibaca bersama oleh semua admin.</p>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -145,25 +156,25 @@ export default function UsersPage() {
                                         <td className="px-4 py-3 text-sm text-slate-600 font-mono">{u.username}</td>
                                         <td className="px-4 py-3 text-sm text-slate-800 font-semibold">{u.name}</td>
                                         <td className="px-4 py-3">
-                                            <select value={u.role} onChange={(e) => patchUser(u, { role: e.target.value as StaffRole })} className="px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9]">
+                                            <select value={u.role} onChange={(e) => { void patchUser(u, { role: e.target.value as StaffRole }); }} className="px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9]">
                                                 <option value="operator">operator</option>
                                                 <option value="receptionist">receptionist</option>
                                                 <option value="admin">admin</option>
                                             </select>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <select value={u.instansi} onChange={(e) => patchUser(u, { instansi: e.target.value as StaffInstansi })} className="px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9]">
+                                            <select value={u.instansi} onChange={(e) => { void patchUser(u, { instansi: e.target.value as StaffInstansi }); }} className="px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9]">
                                                 <option value="Diskominfo Makassar">Diskominfo Makassar</option>
                                                 <option value="UPT Warroom">UPT Warroom</option>
                                             </select>
                                         </td>
                                         <td className="px-4 py-3 text-sm text-slate-600">{orgLabel(u.orgUnitId)}</td>
                                         <td className="px-4 py-3">
-                                            <input defaultValue={u.whatsapp} onBlur={(e) => patchUser(u, { whatsapp: e.target.value })} className="w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9] font-mono" />
+                                            <input defaultValue={u.whatsapp} onBlur={(e) => { void patchUser(u, { whatsapp: e.target.value }); }} className="w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#009FA9] font-mono" />
                                         </td>
                                         <td className="px-4 py-3">
                                             <button
-                                                onClick={() => patchUser(u, { isActive: !u.isActive })}
+                                                onClick={() => { void patchUser(u, { isActive: !u.isActive }); }}
                                                 className={`px-3 py-2 text-xs font-bold rounded-xl border-2 ${u.isActive ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}
                                             >
                                                 {u.isActive ? "Active" : "Inactive"}
@@ -171,10 +182,11 @@ export default function UsersPage() {
                                         </td>
                                         <td className="px-4 py-3">
                                             <button
-                                                onClick={() => {
+                                                onClick={async () => {
                                                     if (!confirm(`Hapus user: ${u.username}?`)) return;
-                                                    deleteStaffUser(u.id);
-                                                    load();
+                                                    await deleteStaffUser(u.id);
+                                                    const users = await fetchStaffUsersFromServer();
+                                                    load(users);
                                                 }}
                                                 className="inline-flex items-center justify-center px-3 py-2 text-xs font-bold text-[#991b1b] bg-white border-2 border-[#991b1b]/30 hover:bg-[#991b1b]/10 rounded-xl transition-colors"
                                             >
@@ -191,4 +203,3 @@ export default function UsersPage() {
         </div>
     );
 }
-

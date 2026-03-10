@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getCases, type CaseItem } from "@/lib/caseStore";
+import { getCases, hydrateCasesFromServer, type CaseItem } from "@/lib/caseStore";
 import { getStaffSession } from "@/lib/staffSession";
 
 const Icons = {
@@ -38,8 +38,12 @@ export default function InboxPage() {
     };
 
     useEffect(() => {
-        load();
-        const i = setInterval(load, 30000);
+        const boot = async () => {
+            await hydrateCasesFromServer();
+            load();
+        };
+        void boot();
+        const i = setInterval(() => { void hydrateCasesFromServer().then(load); }, 30000);
         return () => clearInterval(i);
     }, []);
 
@@ -116,4 +120,3 @@ export default function InboxPage() {
         </div>
     );
 }
-

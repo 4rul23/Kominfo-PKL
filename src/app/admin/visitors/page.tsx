@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { getVisitors, exportToCSV, clearVisitors, seedDummyData, Visitor } from "@/lib/visitorStore";
+import { getVisitors, exportToCSV, clearVisitors, fetchVisitorsFromServer, hydrateVisitorsFromServer, Visitor } from "@/lib/visitorStore";
 import { getCaseByRelatedVisitorId } from "@/lib/caseStore";
 
 // SVG Icons
@@ -40,15 +40,24 @@ export default function VisitorsPage() {
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const perPage = 10;
 
-    const loadData = () => {
-        setVisitors(getVisitors());
+    const loadData = (listOverride?: Visitor[]) => {
+        setVisitors(listOverride || getVisitors());
         setLastUpdated(new Date());
     };
 
     useEffect(() => {
-        loadData();
-        // Auto-refresh every 30 seconds
-        const interval = setInterval(loadData, 30000);
+        const boot = async () => {
+            const visitors = await fetchVisitorsFromServer();
+            if (visitors.length > 0) {
+                localStorage.setItem("diskominfo_visitors", JSON.stringify(visitors));
+                loadData(visitors);
+                return;
+            }
+            await hydrateVisitorsFromServer();
+            loadData();
+        };
+        void boot();
+        const interval = setInterval(() => { void fetchVisitorsFromServer().then((visitors) => loadData(visitors.length > 0 ? visitors : undefined)); }, 30000);
         return () => clearInterval(interval);
     }, []);
 
@@ -85,14 +94,9 @@ export default function VisitorsPage() {
         link.click();
     };
 
-    const handleSeedData = () => {
-        seedDummyData();
-        loadData();
-    };
-
-    const handleClearData = () => {
+    const handleClearData = async () => {
         if (confirm("Hapus semua data pengunjung?")) {
-            clearVisitors();
+            await clearVisitors();
             loadData();
         }
     };
@@ -110,12 +114,9 @@ export default function VisitorsPage() {
                     </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                    <button onClick={loadData} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
+                    <button onClick={() => loadData()} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                         {Icons.refresh}
                         Refresh
-                    </button>
-                    <button onClick={handleSeedData} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
-                        Seed Data
                     </button>
                     <button onClick={handleClearData} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-[#991b1b] bg-white border-2 border-[#991b1b]/30 rounded-2xl hover:bg-[#991b1b]/10 transition-all shadow-sm">
                         {Icons.trash}

@@ -5,6 +5,7 @@ import {
     getParticipantById,
     getParticipantRoleOptions,
 } from "@/lib/meetingParticipants";
+import { getAppDateKey } from "@/lib/timezone";
 
 export interface AttendanceEntry {
     id: string;
@@ -17,7 +18,7 @@ export interface AttendanceEntry {
     participantLabel: string;
     participantRole: string;
     selfieDataUrl: string | null;
-    source: typeof ATTENDANCE_SOURCE;
+    source: string;
     createdAt: string; // ISO timestamp
 }
 
@@ -56,8 +57,10 @@ function normalizeCreatedAt(value: unknown): string {
     return value.trim().length > 0 ? value : new Date().toISOString();
 }
 
-function normalizeSource(value: unknown): typeof ATTENDANCE_SOURCE {
-    return value === ATTENDANCE_SOURCE ? ATTENDANCE_SOURCE : ATTENDANCE_SOURCE;
+function normalizeSource(value: unknown): string {
+    if (typeof value !== "string") return ATTENDANCE_SOURCE;
+    const source = value.trim();
+    return source.length > 0 ? source : ATTENDANCE_SOURCE;
 }
 
 function normalizeId(value: unknown): string {
@@ -87,7 +90,7 @@ function normalizeSelfieDataUrl(value: unknown): string | null {
 }
 
 export function getTodayKey(): string {
-    return new Date().toISOString().slice(0, 10);
+    return getAppDateKey(new Date());
 }
 
 function normalizeNameForCompare(name: string): string {
@@ -379,7 +382,7 @@ export function getTodayAttendanceCountFromEntries(entries: AttendanceEntry[]): 
 
 export function buildTodayParticipantQuotaMap(
     entries: AttendanceEntry[],
-    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+    source: string = ATTENDANCE_SOURCE,
 ): Record<string, ParticipantQuotaStatus> {
     const today = getTodayKey();
     const todayEntries = entries.filter(
@@ -409,7 +412,7 @@ export function buildTodayParticipantQuotaMap(
 
 export function buildTodayParticipantRoleCountMap(
     entries: AttendanceEntry[],
-    source: typeof ATTENDANCE_SOURCE = ATTENDANCE_SOURCE,
+    source: string = ATTENDANCE_SOURCE,
 ): Record<string, Record<string, number>> {
     const today = getTodayKey();
     const todayEntries = entries.filter(
