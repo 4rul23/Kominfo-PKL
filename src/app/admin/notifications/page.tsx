@@ -19,13 +19,18 @@ export default function NotificationsPage() {
 
     const load = async () => {
         if (!userId) return;
-        setList(await getNotificationsForUser(userId));
+        const newList = await getNotificationsForUser(userId);
+        setList((prev) => {
+            if (prev.length !== newList.length) return newList;
+            const hasChanges = newList.some((n, i) => n.id !== prev[i]?.id || n.readAt !== prev[i]?.readAt);
+            return hasChanges ? newList : prev;
+        });
         setLastUpdated(new Date());
     };
 
     useEffect(() => {
         void load();
-        const i = setInterval(() => { void load(); }, 5000);
+        const i = setInterval(() => { void load(); }, 30000);
         return () => clearInterval(i);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);

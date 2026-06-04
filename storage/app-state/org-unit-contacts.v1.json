@@ -1,0 +1,58 @@
+[
+  {
+    "id": "kadis-default",
+    "orgUnitId": "DISKOMINFO_KOTA_MAKASSAR",
+    "contactType": "kadis",
+    "userId": null,
+    "nameOverride": "Kepala Dinas",
+    "whatsapp": "08xxxxxxxxxx"
+  },
+  {
+    "id": "upt-warroom-lead",
+    "orgUnitId": "UPT_WARROOM",
+    "contactType": "lead",
+    "userId": null,
+    "nameOverride": "Koordinator UPT Warroom",
+    "whatsapp": "08xxxxxxxxxx"
+  },
+  {
+    "id": "aptika-lead",
+    "orgUnitId": "BIDANG_APTIKA",
+    "contactType": "lead",
+    "userId": null,
+    "nameOverride": "Kepala Bidang APTIKA",
+    "whatsapp": "08xxxxxxxxxx"
+  },
+  {
+    "id": "ikp-lead",
+    "orgUnitId": "BIDANG_IKP",
+    "contactType": "lead",
+    "userId": null,
+    "nameOverride": "Kepala Bidang IKP",
+    "whatsapp": "08xxxxxxxxxx"
+  },
+  {
+    "id": "pde-lead",
+    "orgUnitId": "BIDANG_PDE_STATISTIK",
+    "contactType": "lead",
+    "userId": null,
+    "nameOverride": "Kepala Bidang PDE Statistik",
+    "whatsapp": "08xxxxxxxxxx"
+  },
+  {
+    "id": "persandian-lead",
+    "orgUnitId": "BIDANG_PERSANDIAN_KEAMANAN",
+    "contactType": "lead",
+    "userId": null,
+    "nameOverride": "Kepala Bidang Persandian",
+    "whatsapp": "08xxxxxxxxxx"
+  },
+  {
+    "id": "sekretariat-lead",
+    "orgUnitId": "SEKRETARIAT",
+    "contactType": "lead",
+    "userId": null,
+    "nameOverride": "Sekretaris Dinas",
+    "whatsapp": "08xxxxxxxxxx"
+  }
+]

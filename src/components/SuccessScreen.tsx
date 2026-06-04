@@ -6,11 +6,14 @@ import { useEffect, useState } from "react";
 interface SuccessScreenProps {
     visitorName: string;
     unit: string;
+    trackingId?: string;
     photo?: string | null;
+    unitStatusInfo?: { status: "available" | "busy" | "unavailable"; note: string } | null;
+    onTrack?: () => void;
     onClose: () => void;
 }
 
-export default function SuccessScreen({ visitorName, unit, photo, onClose }: SuccessScreenProps) {
+export default function SuccessScreen({ visitorName, unit, trackingId, photo, unitStatusInfo, onTrack, onClose }: SuccessScreenProps) {
     const [currentTime, setCurrentTime] = useState("");
 
     useEffect(() => {
@@ -71,6 +74,27 @@ export default function SuccessScreen({ visitorName, unit, photo, onClose }: Suc
                             <p className="text-[#505F79] font-bold text-[0.65rem] uppercase tracking-widest">WAKTU MASUK</p>
                             <p className="text-sm font-bold text-[#172B4D]">{currentTime} WIB</p>
                         </div>
+                        {trackingId && (
+                            <div className="flex items-center justify-between py-3 border-t border-gray-100">
+                                <p className="text-[#505F79] font-bold text-[0.65rem] uppercase tracking-widest">TRACKING ID</p>
+                                <p className="text-sm font-bold text-[#172B4D] font-mono">{trackingId}</p>
+                            </div>
+                        )}
+                        {unitStatusInfo && unitStatusInfo.status !== "available" && (
+                            <div className={`mt-4 p-3 rounded-xl border text-left ${unitStatusInfo.status === 'busy' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <div className={`w-1.5 h-1.5 rounded-full ${unitStatusInfo.status === 'busy' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                                    <p className={`text-[0.65rem] font-bold uppercase tracking-widest ${unitStatusInfo.status === 'busy' ? 'text-amber-800' : 'text-red-800'}`}>
+                                        Info Resepsionis ({unitStatusInfo.status === 'busy' ? 'Sedang Sibuk' : 'Tidak Tersedia'})
+                                    </p>
+                                </div>
+                                {unitStatusInfo.note && (
+                                    <p className={`text-xs font-medium ${unitStatusInfo.status === 'busy' ? 'text-amber-700' : 'text-red-700'}`}>
+                                        "{unitStatusInfo.note}"
+                                    </p>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* QR Mockup */}
@@ -95,6 +119,17 @@ export default function SuccessScreen({ visitorName, unit, photo, onClose }: Suc
                     <div className="flex-[3] bg-[#009FA9]" />
                     <div className="flex-1 bg-[#991b1b]" />
                 </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                {trackingId && onTrack && (
+                    <button onClick={onTrack} className="px-5 py-3 rounded-2xl bg-[#009FA9] text-white text-sm font-bold shadow-lg shadow-[#009FA9]/20 hover:-translate-y-0.5 transition-all">
+                        Lacak Kunjungan
+                    </button>
+                )}
+                <button onClick={onClose} className="px-5 py-3 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-[#172B4D] hover:border-[#009FA9]/30 hover:text-[#009FA9] transition-all">
+                    Selesai
+                </button>
             </div>
 
             {/* card is the focus */}

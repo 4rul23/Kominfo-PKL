@@ -526,3 +526,13 @@ export function getHourlyStats(suratList: SuratElektronik[]): number[] {
 
     return hourlyData;
 }
+
+/** Delete a specific unit info/surat row */
+export async function deleteSurat(id: string): Promise<void> {
+    await fetch(`/api/surat?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Clear all surat rows */
+export async function clearSurat(): Promise<void> {
+    await fetch("/api/surat", { method: "DELETE" });
+}

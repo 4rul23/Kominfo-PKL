@@ -23,7 +23,6 @@ export default function RootLayout({
   return (
     <html lang="id" className={spaceGrotesk.variable}>
       <body className={spaceGrotesk.className}>
-        {/* Fluid Background - EXACT match to original */}
         <div className="fluid-bg">
           <div className="blob blob-1" />
           <div className="blob blob-2" />

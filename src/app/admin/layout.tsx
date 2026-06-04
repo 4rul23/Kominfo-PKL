@@ -57,6 +57,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [currentUser, setCurrentUser] = useState<StaffUser | null>(null);
+    const [isCheckingSession, setIsCheckingSession] = useState(true);
     const pathname = usePathname();
 
     const loadSessionUser = async () => {
@@ -100,9 +101,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     };
 
     useEffect(() => {
-        void seedDefaultOrgStructure();
-        void seedDefaultStaffUsers();
-        void loadSessionUser();
+        const boot = async () => {
+            void seedDefaultOrgStructure();
+            void seedDefaultStaffUsers();
+            await loadSessionUser();
+            setIsCheckingSession(false);
+        };
+        void boot();
     }, []);
 
     const handleLogin = async (e: React.FormEvent) => {
@@ -144,6 +149,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         setUsername("");
         setPassword("");
     };
+
+    if (isCheckingSession) {
+        return (
+            <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-10 h-10 rounded-full border-4 border-slate-200 border-t-[#009FA9] animate-spin" />
+                    <p className="text-sm text-slate-400 font-medium">Memverifikasi sesi...</p>
+                </div>
+            </div>
+        );
+    }
 
     if (!currentUser) {
         return (
@@ -256,7 +272,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const allowed = isAllowedPath(pathname, currentUser.role);
 
     return (
-    <div className="min-h-screen bg-[#f8fafc] flex">
+        <div className="min-h-screen bg-[#f8fafc] flex">
             {/* Sidebar */}
             <aside className="fixed inset-y-0 left-0 w-70 bg-white border-r border-gray-200 z-50 transition-transform duration-300 ease-in-out hidden lg:flex flex-col">
                 <div className="h-32 px-8 flex items-center gap-5 border-b border-gray-100">

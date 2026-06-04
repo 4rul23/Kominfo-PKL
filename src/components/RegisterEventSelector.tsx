@@ -7,7 +7,8 @@ import { getAttendanceEvents, type AttendanceEvent } from "@/lib/attendanceStore
 
 function formatEventDate(value: string | null): string {
     if (!value) return "Tanggal menyusul";
-    const date = new Date(value);
+    const datePart = value.slice(0, 10);
+    const date = new Date(`${datePart}T12:00:00`);
     if (Number.isNaN(date.getTime())) return "Tanggal menyusul";
     return date.toLocaleDateString("id-ID", {
         weekday: "long",
@@ -17,7 +18,35 @@ function formatEventDate(value: string | null): string {
     });
 }
 
+function getEventCutoff(value: string | null): Date | null {
+    if (!value) return null;
+    const datePart = value.slice(0, 10);
+    const date = new Date(`${datePart}T12:00:00`);
+    if (Number.isNaN(date.getTime())) return null;
+    const cutoff = new Date(date);
+    cutoff.setHours(23, 59, 59, 999);
+    return cutoff;
+}
+
+function getEventAvailability(eventDate: string | null): { isOpen: boolean; label: string } {
+    const cutoff = getEventCutoff(eventDate);
+    if (!cutoff) {
+        return { isOpen: true, label: "Belum ada batas waktu event" };
+    }
+    if (Date.now() > cutoff.getTime()) {
+        return {
+            isOpen: false,
+            label: `Ditutup ${cutoff.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`,
+        };
+    }
+    return {
+        isOpen: true,
+        label: `Dibuka s/d ${cutoff.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`,
+    };
+}
+
 function EventCard({ event }: { event: AttendanceEvent }) {
+    const availability = getEventAvailability(event.eventDate);
     return (
         <article className="rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-[0_18px_45px_-36px_rgba(15,23,42,0.7)]">
             <div className="flex items-center justify-between gap-3">
@@ -39,16 +68,22 @@ function EventCard({ event }: { event: AttendanceEvent }) {
             <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
                 Code: <span className="font-mono text-slate-700">{event.code}</span>
             </p>
-            <Link
-                href={`/e/${encodeURIComponent(event.code)}/register`}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#009FA9] px-4 py-3 text-sm font-bold text-white transition hover:brightness-110"
-            >
-                Mulai Absen Event Ini
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12h14" />
-                    <path d="m12 5 7 7-7 7" />
-                </svg>
-            </Link>
+            {availability.isOpen ? (
+                <Link
+                    href={`/e/${encodeURIComponent(event.code)}/register`}
+                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#009FA9] px-4 py-3 text-sm font-bold text-white transition hover:brightness-110"
+                >
+                    Mulai Absen Event Ini
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 12h14" />
+                        <path d="m12 5 7 7-7 7" />
+                    </svg>
+                </Link>
+            ) : (
+                <div className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-400">
+                    Absensi Ditutup
+                </div>
+            )}
         </article>
     );
 }

@@ -36,8 +36,14 @@ export async function fetchOrgDataFromServer(): Promise<{ units: OrgUnit[]; cont
 export async function hydrateOrgDataFromServer(): Promise<void> {
     if (typeof window === "undefined") return;
     const { units, contacts } = await fetchOrgDataFromServer();
-    localStorage.setItem(ORG_UNITS_KEY, JSON.stringify(units));
-    localStorage.setItem(ORG_CONTACTS_KEY, JSON.stringify(contacts));
+    const unitsStr = JSON.stringify(units);
+    const contactsStr = JSON.stringify(contacts);
+    if (unitsStr !== localStorage.getItem(ORG_UNITS_KEY)) {
+        localStorage.setItem(ORG_UNITS_KEY, unitsStr);
+    }
+    if (contactsStr !== localStorage.getItem(ORG_CONTACTS_KEY)) {
+        localStorage.setItem(ORG_CONTACTS_KEY, contactsStr);
+    }
 }
 
 async function syncOrgData(units: OrgUnit[], contacts: OrgUnitContact[]): Promise<void> {

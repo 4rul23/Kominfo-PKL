@@ -40,8 +40,12 @@ export async function GET(request: NextRequest) {
   }
 
   await ensureDefaultStaffUsers();
-  const users = await prisma.staffUser.findMany({ orderBy: { username: "asc" } });
-  return NextResponse.json({ users: users.map(toClientUser) });
+  try {
+    const users = await prisma.staffUser.findMany({ orderBy: { username: "asc" } });
+    return NextResponse.json({ users: users.map(toClientUser) });
+  } catch {
+    return NextResponse.json({ users: [] });
+  }
 }
 
 export async function POST(request: NextRequest) {

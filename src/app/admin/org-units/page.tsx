@@ -32,7 +32,13 @@ export default function OrgUnitsPage() {
             load(data);
         };
         void boot();
-        const i = setInterval(() => { void fetchOrgDataFromServer().then(load); }, 30000);
+        const i = setInterval(() => {
+            void fetchOrgDataFromServer().then((data) => {
+                setUnits(prev => prev.length === data.units.length && JSON.stringify(prev) === JSON.stringify(data.units) ? prev : data.units);
+                setContacts(prev => prev.length === data.contacts.length && JSON.stringify(prev) === JSON.stringify(data.contacts) ? prev : data.contacts);
+                setLastUpdated(new Date());
+            });
+        }, 60000);
         return () => clearInterval(i);
     }, []);
 

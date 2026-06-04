@@ -1,7 +1,7 @@
 "use client";
 
 import { fetchSuratListFromServer, type SuratElektronik } from "./suratStore";
-import { getVisitors, type Visitor } from "./visitorStore";
+import { fetchVisitorsFromServer, type Visitor } from "./visitorStore";
 import { createClientSafeId } from "@/lib/id";
 
 export type CaseType = "visitor" | "surat";
@@ -69,10 +69,16 @@ export async function hydrateCasesFromServer(): Promise<void> {
     if (!response.ok) return;
     const data = (await response.json().catch(() => ({}))) as { cases?: CaseItem[]; events?: CaseEvent[] };
     if (Array.isArray(data.cases)) {
-        localStorage.setItem(CASES_KEY, JSON.stringify(data.cases));
+        const str = JSON.stringify(data.cases);
+        if (str !== localStorage.getItem(CASES_KEY)) {
+            localStorage.setItem(CASES_KEY, str);
+        }
     }
     if (Array.isArray(data.events)) {
-        localStorage.setItem(CASE_EVENTS_KEY, JSON.stringify(data.events));
+        const str = JSON.stringify(data.events);
+        if (str !== localStorage.getItem(CASE_EVENTS_KEY)) {
+            localStorage.setItem(CASE_EVENTS_KEY, str);
+        }
     }
 }
 
@@ -213,9 +219,9 @@ export function createCaseFromSurat(surat: SuratElektronik): CaseItem {
 }
 
 export async function syncCasesFromExistingData(): Promise<{ visitors: number; surat: number }> {
-    const visitors = getVisitors();
+    const visitors = await fetchVisitorsFromServer();
     let createdVisitors = 0;
-    visitors.forEach((v) => {
+    visitors.forEach((v: Visitor) => {
         const exists = getCases().some((c) => c.relatedVisitorId === v.id);
         if (!exists) {
             createCaseFromVisitor(v);
@@ -226,7 +232,7 @@ export async function syncCasesFromExistingData(): Promise<{ visitors: number; s
     const suratList = await fetchSuratListFromServer();
 
     let createdSurat = 0;
-    suratList.forEach((s) => {
+    suratList.forEach((s: SuratElektronik) => {
         const exists = getCases().some((c) => c.relatedSuratId === s.id);
         if (!exists) {
             createCaseFromSurat(s);
@@ -299,9 +305,10 @@ export function assignCase(input: {
     return updated;
 }
 
-export function getRelatedVisitor(caseItem: CaseItem): Visitor | null {
+export async function getRelatedVisitor(caseItem: CaseItem): Promise<Visitor | null> {
     if (!caseItem.relatedVisitorId) return null;
-    return getVisitors().find((v) => v.id === caseItem.relatedVisitorId) || null;
+    const visitors = await fetchVisitorsFromServer();
+    return visitors.find((v) => v.id === caseItem.relatedVisitorId) || null;
 }
 
 export async function getRelatedSurat(caseItem: CaseItem): Promise<SuratElektronik | null> {

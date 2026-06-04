@@ -15,19 +15,31 @@ interface EventRegisterPageProps {
     searchParams?: Promise<{ t?: string | string[] }>;
 }
 
-async function resolveEventNameByCode(eventCode: string): Promise<string | null> {
+async function resolveEventByCode(eventCode: string): Promise<{ name: string; eventDate: string | null } | null> {
     try {
         const event = await prisma.attendanceEvent.findUnique({
             where: { code: eventCode },
-            select: { name: true },
+            select: { name: true, eventDate: true },
         });
-        return event?.name || null;
+        if (!event) return null;
+        return {
+            name: event.name,
+            eventDate: event.eventDate ? event.eventDate.toISOString() : null,
+        };
     } catch {
         if (eventCode === ATTENDANCE_SOURCE) {
-            return "Rapat Koordinasi Lontara+";
+            return { name: "Rapat Koordinasi Lontara+", eventDate: null };
         }
         return null;
     }
+}
+
+function isEventAttendanceClosed(eventDate: string | null): boolean {
+    if (!eventDate) return false;
+    const parsed = new Date(`${eventDate.slice(0, 10)}T12:00:00`);
+    if (Number.isNaN(parsed.getTime())) return false;
+    parsed.setHours(23, 59, 59, 999);
+    return Date.now() > parsed.getTime();
 }
 
 function shouldRequireEventToken(): boolean {
@@ -86,9 +98,21 @@ export default async function EventRegisterPage({ params, searchParams }: EventR
         notFound();
     }
 
-    const eventName = await resolveEventNameByCode(eventCode);
-    if (!eventName) {
+    const eventMeta = await resolveEventByCode(eventCode);
+    if (!eventMeta) {
         notFound();
+    }
+
+    const eventName = eventMeta.name;
+
+    if (isEventAttendanceClosed(eventMeta.eventDate)) {
+        return (
+            <AccessDeniedState
+                eventCode={eventCode}
+                eventName={eventName}
+                message="Masa absensi untuk event ini sudah ditutup. Hubungi panitia jika membutuhkan akses lanjutan."
+            />
+        );
     }
 
     if (shouldRequireEventToken()) {

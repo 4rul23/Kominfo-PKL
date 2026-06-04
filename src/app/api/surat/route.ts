@@ -254,3 +254,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message }, { status });
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  const auth = await requireRole(request, ["admin"]);
+  if (!auth.ok) return NextResponse.json({ message: auth.message }, { status: auth.status });
+
+  const id = request.nextUrl.searchParams.get("id");
+
+  try {
+    if (id) {
+      await prisma.suratSubmission.delete({ where: { id } });
+      await writeAuditLog({ action: "surat.delete", actorUserId: auth.user.id, targetType: "surat", targetId: id });
+    } else {
+      await prisma.suratSubmission.deleteMany({});
+      await writeAuditLog({ action: "surat.clear", actorUserId: auth.user.id, targetType: "surat" });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ message: "Gagal menghapus data surat." }, { status: 500 });
+  }
+}

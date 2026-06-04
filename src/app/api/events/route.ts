@@ -21,16 +21,20 @@ type EventPayload = {
 };
 
 async function ensureDefaultEvent(): Promise<void> {
-  await prisma.attendanceEvent.upsert({
-    where: { code: ATTENDANCE_SOURCE },
-    create: {
-      code: ATTENDANCE_SOURCE,
-      name: DEFAULT_ATTENDANCE_EVENT_NAME,
-      eventDate: new Date(DEFAULT_ATTENDANCE_EVENT_DATE_ISO),
-      isActive: true,
-    },
-    update: {},
-  });
+  try {
+    await prisma.attendanceEvent.upsert({
+      where: { code: ATTENDANCE_SOURCE },
+      create: {
+        code: ATTENDANCE_SOURCE,
+        name: DEFAULT_ATTENDANCE_EVENT_NAME,
+        eventDate: new Date(DEFAULT_ATTENDANCE_EVENT_DATE_ISO),
+        isActive: true,
+      },
+      update: {},
+    });
+  } catch (error) {
+    // Ignore duplicate constraint failures safely during concurrent boots
+  }
 }
 
 export async function GET() {

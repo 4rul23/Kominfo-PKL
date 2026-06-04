@@ -26,6 +26,7 @@ function statusBadge(status: string) {
 }
 
 export default function InboxPage() {
+    const [isLoading, setIsLoading] = useState(true);
     const [cases, setCases] = useState<CaseItem[]>([]);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -41,9 +42,20 @@ export default function InboxPage() {
         const boot = async () => {
             await hydrateCasesFromServer();
             load();
+            setIsLoading(false);
         };
         void boot();
-        const i = setInterval(() => { void hydrateCasesFromServer().then(load); }, 30000);
+        const i = setInterval(() => {
+            void hydrateCasesFromServer().then(() => {
+                const refreshed = getCases();
+                setCases(prev => {
+                    if (prev.length !== refreshed.length) return refreshed;
+                    const changed = refreshed.some((c, idx) => c.status !== prev[idx]?.status || c.updatedAt !== prev[idx]?.updatedAt);
+                    return changed ? refreshed : prev;
+                });
+                setLastUpdated(new Date());
+            });
+        }, 10000);
         return () => clearInterval(i);
     }, []);
 
@@ -58,9 +70,9 @@ export default function InboxPage() {
         <div className="space-y-6">
             <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Inbox Operator</h2>
+                    <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Kotak Masuk Pegawai (Inbox)</h2>
                     <div className="flex items-center gap-2 mt-1">
-                        <p className="text-sm text-slate-500">Tugas yang ditugaskan ke akun kamu</p>
+                        <p className="text-sm text-slate-500">Daftar tugas pekerjaan yang ditugaskan ke akun Anda</p>
                         {lastUpdated && (
                             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Updated: {lastUpdated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
                         )}
@@ -79,17 +91,24 @@ export default function InboxPage() {
                     <table className="w-full">
                         <thead>
                             <tr className="bg-slate-50 text-left border-b border-slate-100">
-                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Case</th>
+                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">No Tiket</th>
                                 <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Jenis</th>
                                 <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Judul</th>
                                 <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
-                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Updated</th>
+                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Pembaruan</th>
                                 <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">Aksi</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {assigned.length === 0 ? (
-                                <tr><td colSpan={6} className="px-4 py-16 text-center text-slate-400 text-sm">Tidak ada tugas</td></tr>
+                            {isLoading ? (
+                                <tr><td colSpan={6} className="px-4 py-16 text-center text-slate-400 text-sm">
+                                    <div className="flex flex-col items-center justify-center gap-2">
+                                        <div className="w-6 h-6 border-2 border-[#009FA9] border-t-transparent rounded-full animate-spin"></div>
+                                        <p>Memuat data inbox...</p>
+                                    </div>
+                                </td></tr>
+                            ) : assigned.length === 0 ? (
+                                <tr><td colSpan={6} className="px-4 py-16 text-center text-slate-400 text-sm">Tidak ada tugas aktif</td></tr>
                             ) : (
                                 assigned.map((c) => (
                                     <tr key={c.id} className="hover:bg-slate-50/50">

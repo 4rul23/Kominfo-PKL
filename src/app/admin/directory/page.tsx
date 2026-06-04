@@ -34,11 +34,27 @@ export default function DirectoryPage() {
 
     useEffect(() => {
         const boot = async () => {
-            const [users, orgData] = await Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]);
-            load({ users, orgUnits: orgData.units, contacts: orgData.contacts });
+            const [fetchedUsers, orgData] = await Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]);
+            load({ users: fetchedUsers, orgUnits: orgData.units, contacts: orgData.contacts });
         };
         void boot();
-        const i = setInterval(() => { void Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]).then(([users, orgData]) => load({ users, orgUnits: orgData.units, contacts: orgData.contacts })); }, 30000);
+        const i = setInterval(() => {
+            void Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]).then(([newUsers, orgData]) => {
+                setUsers(prev => {
+                    if (prev.length !== newUsers.length) return newUsers;
+                    return newUsers.some((u, i) => JSON.stringify(u) !== JSON.stringify(prev[i])) ? newUsers : prev;
+                });
+                setOrgUnits(prev => {
+                    if (prev.length !== orgData.units.length) return orgData.units;
+                    return JSON.stringify(orgData.units) !== JSON.stringify(prev) ? orgData.units : prev;
+                });
+                setContacts(prev => {
+                    if (prev.length !== orgData.contacts.length) return orgData.contacts;
+                    return JSON.stringify(orgData.contacts) !== JSON.stringify(prev) ? orgData.contacts : prev;
+                });
+                setLastUpdated(new Date());
+            });
+        }, 60000);
         return () => clearInterval(i);
     }, []);
 

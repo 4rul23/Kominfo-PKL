@@ -15,11 +15,11 @@ import {
     type CaseItem,
     type CaseStatus,
 } from "@/lib/caseStore";
-import { fetchOrgDataFromServer, getOrgUnits, getLeadContact, getKadisContact, hydrateOrgDataFromServer } from "@/lib/orgUnitStore";
+import { fetchOrgDataFromServer, getOrgUnits, hydrateOrgDataFromServer } from "@/lib/orgUnitStore";
 import { getStaffSession } from "@/lib/staffSession";
 import { fetchStaffUsersFromServer, getStaffUserById, getStaffUsers, hydrateStaffUsersFromServer, type StaffUser } from "@/lib/staffStore";
-import { hydrateVisitorsFromServer } from "@/lib/visitorStore";
-import { buildWaMeLink } from "@/lib/whatsapp";
+import { type Visitor } from "@/lib/visitorStore";
+import { getVisitorStatusLabel } from "@/lib/visitorWorkflow";
 import { addWebNotification } from "@/lib/webNotificationStore";
 
 const Icons = {
@@ -88,7 +88,6 @@ export default function CaseDetailPage() {
             const [staffUsers, orgData] = await Promise.all([
                 fetchStaffUsersFromServer(),
                 fetchOrgDataFromServer(),
-                hydrateVisitorsFromServer(),
                 hydrateStaffUsersFromServer(),
                 hydrateOrgDataFromServer(),
             ]);
@@ -98,22 +97,35 @@ export default function CaseDetailPage() {
             load();
         };
         void boot();
-        const i = setInterval(() => { void hydrateCasesFromServer().then(load); }, 30000);
+        const i = setInterval(() => {
+            void hydrateCasesFromServer().then(() => {
+                if (!caseId) return;
+                const c = getCaseById(caseId);
+                const evs = getCaseEvents(caseId);
+                setItem((prev) => (prev?.id === c?.id && prev?.updatedAt === c?.updatedAt ? prev : c));
+                setEvents((prev) => (prev.length === evs.length ? prev : evs));
+            });
+        }, 60000);
         return () => clearInterval(i);
     }, [caseId]);
 
-    const relatedVisitor = useMemo(() => (item ? getRelatedVisitor(item) : null), [item]);
+    const [relatedVisitor, setRelatedVisitor] = useState<Visitor | null>(null);
 
     useEffect(() => {
-        const loadSurat = async () => {
+        const loadDocs = async () => {
             if (item) {
-                const surat = await getRelatedSurat(item);
+                const [visitor, surat] = await Promise.all([
+                    getRelatedVisitor(item),
+                    getRelatedSurat(item)
+                ]);
+                setRelatedVisitor(visitor);
                 setRelatedSurat(surat);
             } else {
+                setRelatedVisitor(null);
                 setRelatedSurat(null);
             }
         };
-        void loadSurat();
+        void loadDocs();
     }, [item]);
 
     const isReceptionOrAdmin = currentUser?.role === "admin" || currentUser?.role === "receptionist";
@@ -145,29 +157,6 @@ export default function CaseDetailPage() {
 
     const assignedUser = item.assignedToUserId ? users.find((u) => u.id === item.assignedToUserId) : null;
 
-    const baseMessage = () => {
-        const origin = typeof window !== "undefined" ? window.location.origin : "";
-        const link = `${origin}/admin/cases/${item.id}`;
-        const lines: string[] = [];
-        lines.push(`[GUESTBOOK] Case ${shortId(item.id)}`);
-        lines.push(`Jenis: ${item.caseType}`);
-        lines.push(`Unit: ${item.unitTujuan === "UPT_WARROOM" ? "UPT Warroom" : "Diskominfo"}`);
-        if (item.orgUnitId) lines.push(`Org Unit: ${orgLabel(item.orgUnitId)}`);
-        if (relatedVisitor) {
-            lines.push(`Nama: ${relatedVisitor.name}`);
-            lines.push(`Instansi: ${relatedVisitor.organization}`);
-            lines.push(`NIP/NIK: ${relatedVisitor.nip}`);
-            lines.push(`Keperluan: ${relatedVisitor.purpose}`);
-        }
-        if (relatedSurat) {
-            lines.push(`Perihal: ${relatedSurat.perihal}`);
-            lines.push(`Pengirim: ${relatedSurat.namaPengirim} (${relatedSurat.instansiPengirim})`);
-            lines.push(`Tracking: ${relatedSurat.trackingId}`);
-        }
-        lines.push(`Link: ${link}`);
-        return lines.join("\n");
-    };
-
     const handleAssign = () => {
         if (!currentUser) return;
         if (!orgUnitId || !operatorId) return;
@@ -180,20 +169,34 @@ export default function CaseDetailPage() {
         });
         if (updated) {
             const op = users.find((u) => u.id === operatorId);
+            if (relatedVisitor) {
+                void fetch("/api/visitors/transition", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        visitorId: relatedVisitor.id,
+                        caseId: item.id,
+                        toStatus: "forwarded_to_unit",
+                        note: `Kunjungan diteruskan ke ${orgLabel(orgUnitId)} oleh resepsionis.`,
+                        orgUnitId,
+                        orgUnitName: orgLabel(orgUnitId),
+                        assignedOperatorName: op?.name || null,
+                    }),
+                });
+            }
             void addWebNotification({
                 toUserId: operatorId,
                 type: "task_assigned",
-                title: `Tugas baru: Case ${shortId(item.id)}`,
-                body: `${item.caseType} • ${orgLabel(orgUnitId)}\n${item.subject}`,
+                title: `Kunjungan diteruskan: ${shortId(item.id)}`,
+                body: `Resepsionis meneruskan kunjungan ke ${orgLabel(orgUnitId)}.\n${item.subject}`,
                 link: `/admin/cases/${item.id}`,
             });
-            // Optional: notify receptionist too (assignment happened)
             users.filter((u) => u.role === "receptionist").forEach((r) => {
                 void addWebNotification({
                     toUserId: r.id,
                     type: "status_update",
-                    title: `Assigned: Case ${shortId(item.id)}`,
-                    body: `Ke operator: ${op?.name || "-"}`,
+                    title: `Kunjungan diteruskan ke ${orgLabel(orgUnitId)}`,
+                    body: `PIC bidang: ${op?.name || "-"}`,
                     link: `/admin/cases/${item.id}`,
                 });
             });
@@ -201,52 +204,83 @@ export default function CaseDetailPage() {
         load();
     };
 
+    const handleVisitorDecision = async (decision: "accepted_by_unit" | "rejected_by_unit") => {
+        if (!relatedVisitor || !currentUser) return;
+        if (decision === "rejected_by_unit" && !window.confirm("Apakah Anda yakin ingin MENOLAK kunjungan ini? Aksi ini tidak dapat dibatalkan.")) return;
+        const noteText = note.trim() || (decision === "accepted_by_unit" ? "Kunjungan disetujui oleh bidang tujuan." : "Kunjungan tidak dapat diterima oleh bidang tujuan.");
+        await fetch("/api/visitors/transition", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                visitorId: relatedVisitor.id,
+                caseId: item.id,
+                toStatus: decision,
+                note: noteText,
+                orgUnitId: item.orgUnitId,
+                orgUnitName: orgLabel(item.orgUnitId),
+                assignedOperatorName: currentUser.name,
+            }),
+        });
+
+        setCaseStatus(item.id, currentUser.id, decision === "accepted_by_unit" ? "closed" : "cancelled", noteText);
+        users.filter((u) => u.role === "receptionist" || u.role === "admin").forEach((r) => {
+            if (r.id === currentUser.id) return;
+            void addWebNotification({
+                toUserId: r.id,
+                type: decision === "accepted_by_unit" ? "status_update" : "escalation",
+                title: decision === "accepted_by_unit"
+                    ? `Bidang menerima kunjungan: ${shortId(item.id)}`
+                    : `Bidang menolak kunjungan: ${shortId(item.id)}`,
+                body: noteText,
+                link: `/admin/cases/${item.id}`,
+            });
+        });
+        setNote("");
+        load();
+    };
+
+    const handleReceptionistAccept = async () => {
+        if (!relatedVisitor || !currentUser) return;
+        const noteText = note.trim() || "Kunjungan diterima langsung oleh resepsionis/admin tanpa diteruskan ke bidang.";
+        await fetch("/api/visitors/transition", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                visitorId: relatedVisitor.id,
+                caseId: item.id,
+                toStatus: "accepted_by_unit",
+                note: noteText,
+                assignedOperatorName: currentUser.name,
+            }),
+        });
+
+        setCaseStatus(item.id, currentUser.id, "closed", noteText);
+        users.filter((u) => u.role === "receptionist" || u.role === "admin").forEach((r) => {
+            if (r.id === currentUser.id) return;
+            void addWebNotification({
+                toUserId: r.id,
+                type: "status_update",
+                title: `Kunjungan diterima langsung: ${shortId(item.id)}`,
+                body: noteText,
+                link: `/admin/cases/${item.id}`,
+            });
+        });
+        setNote("");
+        load();
+    };
     const handleNotifyOperator = () => {
         const op = operatorId ? users.find((u) => u.id === operatorId) : null;
         if (!op) return;
-        const href = buildWaMeLink(op.whatsapp, baseMessage());
-        if (!href) return;
-        window.open(href, "_blank", "noreferrer");
-        addCaseEvent({ caseId: item.id, actorUserId: currentUser?.id || null, eventType: "contacted", payloadJson: { to: "operator", userId: op.id } });
-        load();
-    };
 
-    const handleEscalateLead = () => {
-        if (!item.orgUnitId) return;
-        const lead = getLeadContact(item.orgUnitId);
-        if (!lead) return;
-        const href = buildWaMeLink(lead.whatsapp, `${baseMessage()}\n\n[Eskalasi] Mohon arahan/koordinasi.`);
-        if (!href) return;
-        window.open(href, "_blank", "noreferrer");
-        addCaseEvent({ caseId: item.id, actorUserId: currentUser?.id || null, eventType: "contacted", payloadJson: { to: "lead", orgUnitId: item.orgUnitId } });
-        users.filter((u) => u.role === "receptionist").forEach((r) => {
-            void addWebNotification({
-                toUserId: r.id,
-                type: "escalation",
-                title: `Eskalasi lead: Case ${shortId(item.id)}`,
-                body: orgLabel(item.orgUnitId),
-                link: `/admin/cases/${item.id}`,
-            });
+        void addWebNotification({
+            toUserId: op.id,
+            type: "task_assigned",
+            title: `Ping: Cek Case ${shortId(item.id)}`,
+            body: `Mohon segera cek dan tindak lanjuti case ini.\n${item.subject}`,
+            link: `/admin/cases/${item.id}`,
         });
-        load();
-    };
 
-    const handleEscalateKadis = () => {
-        const kadis = getKadisContact();
-        if (!kadis) return;
-        const href = buildWaMeLink(kadis.whatsapp, `${baseMessage()}\n\n[Eskalasi] Mohon arahan Kepala Dinas.`);
-        if (!href) return;
-        window.open(href, "_blank", "noreferrer");
-        addCaseEvent({ caseId: item.id, actorUserId: currentUser?.id || null, eventType: "contacted", payloadJson: { to: "kadis" } });
-        users.filter((u) => u.role === "receptionist").forEach((r) => {
-            void addWebNotification({
-                toUserId: r.id,
-                type: "escalation",
-                title: `Eskalasi kadis: Case ${shortId(item.id)}`,
-                body: orgLabel(item.orgUnitId),
-                link: `/admin/cases/${item.id}`,
-            });
-        });
+        addCaseEvent({ caseId: item.id, actorUserId: currentUser?.id || null, eventType: "contacted", payloadJson: { to: "operator_web", userId: op.id } });
         load();
     };
 
@@ -278,8 +312,8 @@ export default function CaseDetailPage() {
             void addWebNotification({
                 toUserId: r.id,
                 type: "status_update",
-                title: `Status update: Case ${shortId(item.id)}`,
-                body: `Status: ${updated.status}`,
+                title: `Pembaruan status: Tiket ${shortId(item.id)}`,
+                body: `Status baru: ${updated.status}`,
                 link: `/admin/cases/${item.id}`,
             });
         });
@@ -309,12 +343,11 @@ export default function CaseDetailPage() {
             <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="min-w-0">
-                        <p className="text-xs text-slate-400 font-mono">CASE {shortId(item.id)}</p>
+                        <p className="text-xs text-slate-400 font-mono">TIKET {shortId(item.id)}</p>
                         <h2 className="text-xl font-extrabold text-slate-800 tracking-tight mt-1">{item.subject}</h2>
                         <p className="text-sm text-slate-500 mt-1">{item.description}</p>
                         <div className="flex items-center gap-2 mt-3 flex-wrap">
                             <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded-lg border border-slate-200 ${badge(item.status)}`}>{item.status}</span>
-                            <span className="inline-block px-2 py-0.5 text-xs font-bold rounded-lg border border-slate-200 bg-slate-50 text-slate-600">{item.priority}</span>
                             <span className="inline-block px-2 py-0.5 text-xs font-bold rounded-lg border border-slate-200 bg-slate-50 text-slate-600">{item.unitTujuan === "UPT_WARROOM" ? "UPT Warroom" : "Diskominfo"}</span>
                             <span className="inline-block px-2 py-0.5 text-xs font-bold rounded-lg border border-slate-200 bg-slate-50 text-slate-600">{orgLabel(item.orgUnitId)}</span>
                         </div>
@@ -322,10 +355,10 @@ export default function CaseDetailPage() {
 
                     <div className="w-full sm:w-[340px]">
                         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                            <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Assignment</p>
+                            <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Tugaskan (Disposisi)</p>
                             <div className="mt-3 grid grid-cols-1 gap-2">
                                 <select disabled={!canEditAssignment} value={orgUnitId} onChange={(e) => { setOrgUnitId(e.target.value); setOperatorId(""); }} className="px-3 py-2 bg-white border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9] disabled:opacity-70">
-                                    <option value="">Pilih Org Unit...</option>
+                                    <option value="">Pilih Bidang/Unit...</option>
                                     {(item.unitTujuan === "UPT_WARROOM"
                                         ? orgUnits.filter((u) => u.id === "UPT_WARROOM")
                                         : orgUnits.filter((u) => ["bidang", "subbag", "sekretariat", "pool"].includes(u.type))
@@ -334,34 +367,29 @@ export default function CaseDetailPage() {
                                     ))}
                                 </select>
                                 <select disabled={!canEditAssignment} value={operatorId} onChange={(e) => setOperatorId(e.target.value)} className="px-3 py-2 bg-white border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9] disabled:opacity-70">
-                                    <option value="">Pilih Operator...</option>
+                                    <option value="">Pilih Pegawai...</option>
                                     {operatorOptions.map((u) => (
                                         <option key={u.id} value={u.id}>{u.name}</option>
                                     ))}
-                                </select>
-                                <select disabled={!canEditAssignment} value={priority} onChange={(e) => setPriority(e.target.value as any)} className="px-3 py-2 bg-white border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9] disabled:opacity-70">
-                                    <option value="normal">normal</option>
-                                    <option value="high">high</option>
-                                    <option value="urgent">urgent</option>
                                 </select>
                                 <button
                                     disabled={!canEditAssignment || !orgUnitId || !operatorId}
                                     onClick={handleAssign}
                                     className="px-4 py-3 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#009FA9]/20 disabled:opacity-60 disabled:cursor-not-allowed"
                                 >
-                                    Assign Operator
+                                    Tugaskan Ke Pegawai
                                 </button>
                                 <button
                                     disabled={!canEditAssignment || !operatorId}
                                     onClick={handleNotifyOperator}
-                                    className="inline-flex items-center justify-center gap-2 px-4 py-3 text-xs font-bold text-white bg-[#36B37E] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#36B37E]/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    className="inline-flex items-center justify-center gap-2 px-4 py-3 text-xs font-bold text-[#009FA9] bg-[#009FA9]/10 rounded-2xl hover:bg-[#009FA9]/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                                 >
-                                    {Icons.wa}
-                                    Notify via WhatsApp
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                                    Kirim Notifikasi Panggilan
                                 </button>
                             </div>
                             <div className="mt-3 text-xs text-slate-500">
-                                Assigned to: <span className="font-semibold text-slate-700">{assignedUser?.name || "-"}</span>
+                                Ditugaskan kepada: <span className="font-semibold text-slate-700">{assignedUser?.name || "-"}</span>
                             </div>
                         </div>
                     </div>
@@ -369,21 +397,35 @@ export default function CaseDetailPage() {
 
                 {isOperator && !operatorCanAct && (
                     <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-800">
-                        Kamu login sebagai operator, tapi case ini bukan ditugaskan ke akun kamu. Halaman ini hanya read-only.
+                        Anda login sebagai staf divisi, tapi tiket ini bukan ditugaskan ke akun Anda. Halaman ini hanya bisa dilihat (read-only).
                     </div>
                 )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
                     <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                        <p className="text-sm font-bold text-slate-800">Detail Data</p>
+                        <p className="text-sm font-bold text-slate-800">Informasi Detail</p>
                         {relatedVisitor && (
                             <div className="mt-3 text-sm text-slate-700 space-y-1">
+                                <p><span className="text-slate-500">Tracking:</span> <span className="font-mono">{relatedVisitor.trackingId}</span></p>
                                 <p><span className="text-slate-500">Nama:</span> {relatedVisitor.name}</p>
                                 <p><span className="text-slate-500">Instansi:</span> {relatedVisitor.organization}</p>
                                 <p><span className="text-slate-500">Jabatan:</span> {relatedVisitor.jabatan}</p>
                                 <p><span className="text-slate-500">NIP/NIK:</span> <span className="font-mono">{relatedVisitor.nip}</span></p>
                                 <p><span className="text-slate-500">Keperluan:</span> {relatedVisitor.purpose}</p>
                                 <p><span className="text-slate-500">Asal:</span> {relatedVisitor.asalDaerah} / {relatedVisitor.provinsi}</p>
+                                <p><span className="text-slate-500">Status Kunjungan:</span> {getVisitorStatusLabel(relatedVisitor.status)}</p>
+                                {relatedVisitor.forwardedOrgUnitName && <p><span className="text-slate-500">Diteruskan ke:</span> {relatedVisitor.forwardedOrgUnitName}</p>}
+                                {relatedVisitor.assignedOperatorName && <p><span className="text-slate-500">PIC:</span> {relatedVisitor.assignedOperatorName}</p>}
+                                {relatedVisitor.decisionNote && <p><span className="text-slate-500">Catatan Keputusan:</span> {relatedVisitor.decisionNote}</p>}
+                                <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Arah Penerusan</p>
+                                    <p className="mt-2 text-sm text-slate-700">
+                                        Form tamu memilih <span className="font-bold text-[#172B4D]">{relatedVisitor.unit || "-"}</span> sebagai tujuan kunjungan.
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-600">
+                                        Jika perlu diteruskan, resepsionis memilih <span className="font-bold text-[#172B4D]">Org Unit</span> dan <span className="font-bold text-[#172B4D]">operator bidang</span> di bawah.
+                                    </p>
+                                </div>
                             </div>
                         )}
                         {relatedSurat && (
@@ -399,88 +441,79 @@ export default function CaseDetailPage() {
                         )}
                     </div>
 
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                        <p className="text-sm font-bold text-slate-800">Aksi Operator</p>
-                        <div className="mt-3 grid grid-cols-1 gap-2">
-                            <div className="flex gap-2">
-                                <select disabled={!canUpdateStatus} value={statusNext} onChange={(e) => setStatusNext(e.target.value as any)} className="flex-1 px-3 py-2 bg-white border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9] disabled:opacity-70">
-                                    <option value="">Ubah status...</option>
-                                    {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                                <button disabled={!canUpdateStatus || !statusNext} onClick={handleStatusChange} className="px-4 py-2 text-xs font-bold text-white bg-[#009FA9] rounded-2xl disabled:opacity-60 disabled:cursor-not-allowed">
-                                    Update
-                                </button>
+                    <div className="bg-white border-2 border-gray-100 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="w-8 h-8 rounded-full bg-[#009FA9]/10 flex items-center justify-center text-[#009FA9]">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+                            </div>
+                            <p className="text-lg font-extrabold text-slate-800 tracking-tight">Tindakan Lanjutan (Eksekusi)</p>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 relative overflow-hidden group hover:border-[#009FA9]/30 transition-colors">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-[#009FA9]" />
+                                <p className="text-sm font-bold text-slate-700 mb-2">Pembaruan Tahap Proses</p>
+                                <div className="flex gap-2">
+                                    <select disabled={!canUpdateStatus} value={statusNext} onChange={(e) => setStatusNext(e.target.value as any)} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:border-[#009FA9] focus:ring-4 focus:ring-[#009FA9]/10 transition-all disabled:opacity-70 disabled:bg-slate-50">
+                                        <option value="">Pilih progres...</option>
+                                        <option value="acknowledged">Sudah Dilihat</option>
+                                        <option value="in_progress">Sedang Ditangani</option>
+                                        <option value="escalated">Butuh Bantuan Atasan</option>
+                                        <option value="closed">Selesai Berhasil</option>
+                                        <option value="cancelled">Dihentikan / Batal</option>
+                                    </select>
+                                    <button disabled={!canUpdateStatus || !statusNext} onClick={handleStatusChange} className="px-6 py-3 text-sm font-bold text-white bg-slate-800 rounded-xl hover:bg-[#009FA9] hover:-translate-y-0.5 transition-all shadow-lg disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed">
+                                        Simpan
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="flex gap-2 flex-wrap">
-                                <button
-                                    disabled={!canUpdateStatus || !item.orgUnitId || !getLeadContact(item.orgUnitId)}
-                                    onClick={handleEscalateLead}
-                                    className="inline-flex items-center gap-2 px-4 py-3 text-xs font-bold text-white bg-[#36B37E] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#36B37E]/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                                    title={!item.orgUnitId ? "Org Unit belum ditentukan" : !getLeadContact(item.orgUnitId) ? "Lead contact belum diset" : "Eskalasi ke lead"}
-                                >
-                                    {Icons.wa}
-                                    Eskalasi Lead
-                                </button>
-                                <button
-                                    disabled={!canUpdateStatus || !getKadisContact()}
-                                    onClick={handleEscalateKadis}
-                                    className="inline-flex items-center gap-2 px-4 py-3 text-xs font-bold text-white bg-[#991b1b] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#991b1b]/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                                    title={!getKadisContact() ? "Kontak Kepala Dinas belum diset" : "Eskalasi ke Kepala Dinas"}
-                                >
-                                    {Icons.wa}
-                                    Eskalasi Kadis
-                                </button>
-                            </div>
+                            {relatedVisitor && (operatorCanAct || isReceptionOrAdmin) && (
+                                <div className="space-y-3">
+                                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400 pl-1">Keputusan Akhir</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        {isReceptionOrAdmin && (
+                                            <button
+                                                disabled={relatedVisitor.status === "accepted_by_unit" || relatedVisitor.status === "rejected_by_unit"}
+                                                onClick={() => void handleReceptionistAccept()}
+                                                className="col-span-full px-4 py-3.5 text-sm font-extrabold text-white bg-gradient-to-r from-[#009FA9] to-[#04b4c0] rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all disabled:opacity-50 disabled:grayscale disabled:hover:scale-100"
+                                            >
+                                                Verifikasi Selesai (Resepsionis)
+                                            </button>
+                                        )}
+                                        <button
+                                            disabled={relatedVisitor.status === "accepted_by_unit" || relatedVisitor.status === "rejected_by_unit"}
+                                            onClick={() => void handleVisitorDecision("accepted_by_unit")}
+                                            className="px-4 py-3.5 text-sm font-extrabold text-emerald-700 bg-emerald-50 border-2 border-emerald-200 rounded-xl hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all disabled:opacity-50 disabled:hover:bg-emerald-50 disabled:hover:text-emerald-700 disabled:hover:border-emerald-200"
+                                        >
+                                            Bidang Setuju Terima
+                                        </button>
+                                        <button
+                                            disabled={relatedVisitor.status === "accepted_by_unit" || relatedVisitor.status === "rejected_by_unit"}
+                                            onClick={() => void handleVisitorDecision("rejected_by_unit")}
+                                            className="px-4 py-3.5 text-sm font-extrabold text-rose-700 bg-rose-50 border-2 border-rose-200 rounded-xl hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-all disabled:opacity-50 disabled:hover:bg-rose-50 disabled:hover:text-rose-700 disabled:hover:border-rose-200"
+                                        >
+                                            Bidang Menolak
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
-                            <div className="mt-2">
-                                <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Tambah catatan..." className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-2xl text-sm focus:outline-none focus:border-[#009FA9] min-h-[90px]" />
-                                <div className="mt-2 flex justify-end">
-                                    <button disabled={!note.trim()} onClick={handleAddNote} className="px-4 py-2 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+                            <div className="pt-2 border-t border-slate-100">
+                                <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400 mb-2 block pl-1">Catatan Tambahan</label>
+                                <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ketikan instruksi atau pesan keputusan Anda disini..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:outline-none focus:border-[#009FA9] focus:bg-white focus:ring-4 focus:ring-[#009FA9]/10 transition-all min-h-[100px] resize-none" />
+                                <div className="mt-3 flex justify-end items-center">
+                                    <button disabled={!note.trim()} onClick={handleAddNote} className="px-5 py-2.5 text-xs font-bold text-white bg-slate-400 rounded-xl hover:bg-slate-600 transition-colors disabled:opacity-40">
                                         Simpan Catatan
                                     </button>
                                 </div>
                             </div>
+
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-white border-2 border-gray-200 rounded-2xl overflow-hidden">
-                <div className="p-4 border-b border-slate-100">
-                    <p className="text-sm font-bold text-slate-800">Audit Trail</p>
-                    <p className="text-xs text-slate-400 mt-1">Semua aksi dicatat sebagai event (dummy localStorage)</p>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="bg-slate-50 text-left border-b border-slate-100">
-                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-44">Waktu</th>
-                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Event</th>
-                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Actor</th>
-                                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Payload</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {events.length === 0 ? (
-                                <tr><td colSpan={4} className="px-4 py-12 text-center text-slate-400 text-sm">Belum ada event</td></tr>
-                            ) : (
-                                events.map((e: any) => {
-                                    const actor = e.actorUserId ? users.find((u) => u.id === e.actorUserId) : null;
-                                    return (
-                                        <tr key={e.id} className="hover:bg-slate-50/50">
-                                            <td className="px-4 py-3 text-sm text-slate-500 font-mono">{new Date(e.createdAt).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
-                                            <td className="px-4 py-3 text-sm text-slate-700 font-semibold">{e.eventType}</td>
-                                            <td className="px-4 py-3 text-sm text-slate-600">{actor?.name || "-"}</td>
-                                            <td className="px-4 py-3 text-xs text-slate-500 font-mono whitespace-pre-wrap">{JSON.stringify(e.payloadJson)}</td>
-                                        </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
         </div>
     );
 }

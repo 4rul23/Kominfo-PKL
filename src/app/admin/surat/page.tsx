@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { getSuratStats, updateSuratStatus, exportSuratToCSV, SuratElektronik, getOverdueSurat, getHourlyStats, assignDisposisi, Prioritas, fetchSuratListFromServer, getSuratByIdFromList } from "@/lib/suratStore";
+import { getSuratStats, updateSuratStatus, exportSuratToCSV, SuratElektronik, getOverdueSurat, getHourlyStats, assignDisposisi, Prioritas, fetchSuratListFromServer, getSuratByIdFromList, deleteSurat, clearSurat } from "@/lib/suratStore";
 import { getCaseByRelatedSuratId } from "@/lib/caseStore";
 import { getStaffSession } from "@/lib/staffSession";
 import { canRolePerformTransition, getNextSuratStatus, type WorkflowActorRole } from "@/lib/suratWorkflow";
@@ -15,6 +15,7 @@ const PageIcons = {
     refresh: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>,
     eye: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>,
     close: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
+    trash: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>,
 };
 
 // Status configuration (matching main admin color style)
@@ -67,6 +68,7 @@ const INSTRUKSI_OPTIONS = [
 const STATUS_ORDER: SuratElektronik["status"][] = ["submitted", "verified", "in_review", "paraf", "approved", "archived"];
 
 export default function AdminSuratPage() {
+    const [isLoading, setIsLoading] = useState(true);
     const [suratList, setSuratList] = useState<SuratElektronik[]>([]);
     const [overdueSurat, setOverdueSurat] = useState<SuratElektronik[]>([]);
     const [stats, setStats] = useState({
@@ -98,20 +100,44 @@ export default function AdminSuratPage() {
     const [disposisiForm, setDisposisiForm] = useState({ assignedTo: STAFF_OPTIONS[0], instruksi: [] as string[], catatan: "" });
 
     function applyList(list: SuratElektronik[]) {
-        setSuratList(list);
-        const overdue = getOverdueSurat(list);
-        setOverdueSurat(overdue);
-        const baseStats = getSuratStats(list);
-
-        const jenisCounts: Record<string, number> = {};
-        list.forEach(s => {
-            if (s.jenisSurat) {
-                jenisCounts[s.jenisSurat] = (jenisCounts[s.jenisSurat] || 0) + 1;
+        setSuratList(prev => {
+            if (prev.length === list.length) {
+                const changed = list.some((s, idx) => s.id !== prev[idx]?.id || s.lastUpdated !== prev[idx]?.lastUpdated);
+                if (!changed) return prev;
             }
-        });
 
-        setStats({ ...baseStats, overdue: overdue.length, hourlyData: getHourlyStats(list), jenisCounts });
-        setLastUpdated(new Date());
+            const overdue = getOverdueSurat(list);
+            setOverdueSurat(overdue);
+            const baseStats = getSuratStats(list);
+
+            const jenisCounts: Record<string, number> = {};
+            list.forEach(s => {
+                if (s.jenisSurat) {
+                    jenisCounts[s.jenisSurat] = (jenisCounts[s.jenisSurat] || 0) + 1;
+                }
+            });
+
+            setStats({ ...baseStats, overdue: overdue.length, hourlyData: getHourlyStats(list), jenisCounts });
+            setLastUpdated(new Date());
+
+            return list;
+        });
+    }
+
+    /** Patch a single surat in the current list without re-fetching everything. */
+    function patchInList(updated: SuratElektronik) {
+        setSuratList(prev => {
+            const next = prev.map(s => s.id === updated.id ? updated : s);
+            // Recompute stats inline
+            const overdue = getOverdueSurat(next);
+            setOverdueSurat(overdue);
+            const baseStats = getSuratStats(next);
+            const jenisCounts: Record<string, number> = {};
+            next.forEach(s => { if (s.jenisSurat) jenisCounts[s.jenisSurat] = (jenisCounts[s.jenisSurat] || 0) + 1; });
+            setStats({ ...baseStats, overdue: overdue.length, hourlyData: getHourlyStats(next), jenisCounts });
+            setLastUpdated(new Date());
+            return next;
+        });
     }
 
     async function refreshFromServer() {
@@ -127,11 +153,12 @@ export default function AdminSuratPage() {
                 setActorRole(session.role);
             }
             applyList(serverList);
+            setIsLoading(false);
         };
         void boot();
         const i = setInterval(() => {
             void refreshFromServer();
-        }, 30000);
+        }, 60000);
         return () => clearInterval(i);
     }, []);
 
@@ -149,10 +176,9 @@ export default function AdminSuratPage() {
     const handleVerify = async (id: string) => {
         try {
             setActionError("");
-            await updateSuratStatus(id, "verified", "Surat diverifikasi oleh resepsionis/admin");
-            const freshList = await fetchSuratListFromServer();
-            applyList(freshList);
-            if (selectedSurat?.id === id) setSelectedSurat(getSuratByIdFromList(id, freshList));
+            const updated = await updateSuratStatus(id, "verified", "Surat diverifikasi oleh resepsionis/admin");
+            patchInList(updated);
+            if (selectedSurat?.id === id) setSelectedSurat(updated);
         } catch (error) {
             setActionError(error instanceof Error ? error.message : "Gagal memverifikasi surat.");
         }
@@ -160,10 +186,9 @@ export default function AdminSuratPage() {
     const handleStatusChange = async (id: string, newStatus: SuratElektronik["status"], note?: string) => {
         try {
             setActionError("");
-            await updateSuratStatus(id, newStatus, note);
-            const freshList = await fetchSuratListFromServer();
-            applyList(freshList);
-            if (selectedSurat?.id === id) setSelectedSurat(getSuratByIdFromList(id, freshList));
+            const updated = await updateSuratStatus(id, newStatus, note);
+            patchInList(updated);
+            if (selectedSurat?.id === id) setSelectedSurat(updated);
             setStatusNote("");
         } catch (error) {
             setActionError(error instanceof Error ? error.message : "Gagal mengubah status surat.");
@@ -223,7 +248,17 @@ export default function AdminSuratPage() {
     }), [suratList, searchQuery, statusFilters, priorityFilter, jenisFilter, instansiFilter, matchesDateRange, matchesSlaRange]);
 
     const openDisposisiModal = (surat: SuratElektronik) => { setSelectedSurat(surat); setIsDisposisiModalOpen(true); setDisposisiForm(surat.disposisi ? { assignedTo: surat.disposisi.assignedTo, instruksi: surat.disposisi.instruksi, catatan: surat.disposisi.catatan } : { assignedTo: STAFF_OPTIONS[0], instruksi: [], catatan: "" }); };
-    const handleDisposisiSubmit = async () => { if (!selectedSurat) return; try { await assignDisposisi(selectedSurat.id, { ...disposisiForm, disposisiOleh: "Admin" }, suratList); const freshList = await fetchSuratListFromServer(); applyList(freshList); setIsDisposisiModalOpen(false); setSelectedSurat(getSuratByIdFromList(selectedSurat.id, freshList)); } catch (error) { setActionError(error instanceof Error ? error.message : "Gagal menyimpan disposisi."); } };
+    const handleDisposisiSubmit = async () => {
+        if (!selectedSurat) return;
+        try {
+            const updated = await assignDisposisi(selectedSurat.id, { ...disposisiForm, disposisiOleh: "Admin" }, suratList);
+            patchInList(updated);
+            setIsDisposisiModalOpen(false);
+            if (selectedSurat?.id === updated.id) setSelectedSurat(updated);
+        } catch (error) {
+            setActionError(error instanceof Error ? error.message : "Gagal menyimpan disposisi.");
+        }
+    };
     const toggleInstruksi = (instruksi: string) => setDisposisiForm(prev => ({ ...prev, instruksi: prev.instruksi.includes(instruksi) ? prev.instruksi.filter(i => i !== instruksi) : [...prev.instruksi, instruksi] }));
     const handleExport = () => { const csv = exportSuratToCSV(suratList); const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `surat_${new Date().toISOString().split("T")[0]}.csv`; link.click(); };
     const formatFileSize = (bytes: number): string => bytes < 1024 ? bytes + " B" : bytes < 1024 * 1024 ? (bytes / 1024).toFixed(1) + " KB" : (bytes / (1024 * 1024)).toFixed(1) + " MB";
@@ -238,6 +273,20 @@ export default function AdminSuratPage() {
     const formatDateTime = (isoStr: string) => new Date(isoStr).toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     const maxHourly = Math.max(...stats.hourlyData, 1);
+
+    const handleClearData = async () => {
+        if (confirm("Hapus semua data surat?")) {
+            await clearSurat();
+            await refreshFromServer();
+        }
+    };
+
+    const handleDeleteSingleSurat = async (id: string, trackingId: string) => {
+        if (confirm(`Hapus data surat ${trackingId}?`)) {
+            await deleteSurat(id);
+            await refreshFromServer();
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -256,6 +305,10 @@ export default function AdminSuratPage() {
                     <button onClick={() => { void refreshFromServer(); }} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                         {PageIcons.refresh}
                         Refresh
+                    </button>
+                    <button onClick={handleClearData} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-[#991b1b] bg-white border-2 border-[#991b1b]/30 rounded-2xl hover:bg-[#991b1b]/10 transition-all shadow-sm">
+                        {PageIcons.trash}
+                        Hapus Semua
                     </button>
                     <button onClick={handleExport} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#009FA9]/20">
                         {PageIcons.download}
@@ -472,7 +525,14 @@ export default function AdminSuratPage() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                        {filteredSurat.length === 0 ? (
+                        {isLoading ? (
+                            <tr><td colSpan={8} className="px-4 py-16 text-center text-slate-400 text-sm">
+                                <div className="flex flex-col items-center justify-center gap-2">
+                                    <div className="w-6 h-6 border-2 border-[#009FA9] border-t-transparent rounded-full animate-spin"></div>
+                                    <p>Memuat data surat...</p>
+                                </div>
+                            </td></tr>
+                        ) : filteredSurat.length === 0 ? (
                             <tr><td colSpan={8} className="px-4 py-16 text-center text-slate-400 text-sm">Belum ada surat masuk</td></tr>
                         ) : filteredSurat.slice(0, 20).map((s) => {
                             return (
@@ -523,6 +583,9 @@ export default function AdminSuratPage() {
                                                     Disposisi
                                                 </button>
                                             )}
+                                            <button onClick={() => handleDeleteSingleSurat(s.id, s.trackingId || "Tanpa ID")} className="text-red-500 hover:text-white hover:bg-red-500 p-1.5 rounded-lg transition-all shadow-sm border border-transparent hover:border-red-500" title="Hapus Surat">
+                                                {PageIcons.trash}
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>

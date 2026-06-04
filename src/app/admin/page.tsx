@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { getVisitors, getStats, exportToCSV, seedDummyData, Visitor } from "@/lib/visitorStore";
+import { fetchVisitorsFromServer, getStats, exportToCSV, seedDummyData, Visitor } from "@/lib/visitorStore";
+import UnitStatusWidget from "@/components/UnitStatusWidget";
 
 // SVG Icons
 const PageIcons = {
@@ -17,6 +18,7 @@ function formatNumber(n: number): string {
 }
 
 export default function AdminPage() {
+    const [isLoading, setIsLoading] = useState(true);
     const [visitors, setVisitors] = useState<Visitor[]>([]);
     const [stats, setStats] = useState({
         today: 0, week: 0, month: 0, total: 0,
@@ -28,21 +30,27 @@ export default function AdminPage() {
     const [provinsiFilter, setProvinsiFilter] = useState("all");
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-    const loadData = () => {
-        setVisitors(getVisitors());
-        setStats(getStats());
+    const loadData = async () => {
+        const v = await fetchVisitorsFromServer();
+        setVisitors(prev => {
+            if (prev.length !== v.length) return v;
+            const changed = v.some((item, i) => item.id !== prev[i]?.id);
+            return changed ? v : prev;
+        });
+        setStats(getStats(v));
         setLastUpdated(new Date());
+        setIsLoading(false);
     };
 
     useEffect(() => {
-        loadData();
-        const interval = setInterval(loadData, 30000);
+        void loadData();
+        const interval = setInterval(() => { void loadData(); }, 60000);
         return () => clearInterval(interval);
     }, []);
 
-    const handleSeedData = () => {
-        seedDummyData();
-        loadData();
+    const handleSeedData = async () => {
+        await seedDummyData();
+        await loadData();
     };
 
 
@@ -60,7 +68,7 @@ export default function AdminPage() {
     const provinsis = useMemo(() => [...new Set(visitors.map((v) => v.provinsi).filter(p => p && p !== "-"))], [visitors]);
 
     const handleExport = () => {
-        const csv = exportToCSV();
+        const csv = exportToCSV(visitors);
         const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -86,11 +94,11 @@ export default function AdminPage() {
                     </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                    <button onClick={loadData} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
+                    <button onClick={() => { void loadData(); }} className="flex items-center gap-1.5 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
                         Refresh
                     </button>
-                    <button onClick={handleSeedData} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
+                    <button onClick={() => { void handleSeedData(); }} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-[#505F79] bg-white border-2 border-gray-200 rounded-2xl hover:border-[#009FA9] hover:text-[#009FA9] transition-all shadow-sm">
                         Seed Data
                     </button>
                     <button onClick={handleExport} className="flex items-center gap-2 px-4 py-3 text-xs font-bold text-white bg-[#009FA9] rounded-2xl hover:shadow-xl hover:-translate-y-0.5 transition-all shadow-lg shadow-[#009FA9]/20">
@@ -121,9 +129,9 @@ export default function AdminPage() {
             </div>
 
             {/* Stats Row 2 - Charts & Breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {/* Hourly Chart */}
-                <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-5 lg:col-span-2">
+                <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-5 lg:col-span-2 xl:col-span-2">
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <p className="text-sm font-semibold text-slate-700">Aktivitas Hari Ini</p>
@@ -148,7 +156,7 @@ export default function AdminPage() {
                 </div>
 
                 {/* Province Breakdown */}
-                <div className="bg-white border-2 border-gray-200 rounded-2xl p-5">
+                <div className="bg-white border-2 border-gray-200 rounded-2xl p-5 col-span-1">
                     <p className="text-sm font-semibold text-slate-700 mb-1">Asal Provinsi</p>
                     <p className="text-xs text-slate-400 mb-4">Top provinsi pengunjung</p>
                     <div className="space-y-3">
@@ -167,6 +175,11 @@ export default function AdminPage() {
                             <p className="text-xs text-slate-400 text-center py-4">Belum ada data</p>
                         )}
                     </div>
+                </div>
+
+                {/* Unit Status Widget */}
+                <div className="col-span-1 lg:col-span-3 xl:col-span-1">
+                    <UnitStatusWidget />
                 </div>
             </div>
 
@@ -213,7 +226,7 @@ export default function AdminPage() {
                                     <td className="px-4 py-3 text-sm text-slate-400">{idx + 1}</td>
                                     <td className="px-4 py-3 text-sm font-medium text-slate-800">{v.name}</td>
                                     <td className="px-4 py-3 text-sm text-slate-600">{v.organization}</td>
-                                        <td className="px-4 py-3 text-sm"><span className="inline-block px-2 py-0.5 bg-[#009FA9]/10 text-[#009FA9] text-xs font-bold rounded-lg border border-[#009FA9]/20">{v.unit}</span></td>
+                                    <td className="px-4 py-3 text-sm"><span className="inline-block px-2 py-0.5 bg-[#009FA9]/10 text-[#009FA9] text-xs font-bold rounded-lg border border-[#009FA9]/20">{v.unit}</span></td>
                                     <td className="px-4 py-3 text-sm text-slate-500">{v.date}</td>
                                     <td className="px-4 py-3 text-sm font-medium text-slate-700">{v.timestamp}</td>
                                 </tr>

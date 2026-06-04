@@ -18,8 +18,8 @@ import {
 } from "@/lib/attendanceStore";
 import {
     ATTENDANCE_SOURCE,
-    LONTARA_MEETING_PARTICIPANTS,
     getParticipantRoleOptions,
+    getParticipantsForEvent,
 } from "@/lib/meetingParticipants";
 
 const TOTAL_STEPS = 4;
@@ -27,6 +27,32 @@ const SUCCESS_STEP = TOTAL_STEPS + 1;
 const AUTO_RESET_MS = 4000;
 const NIP_MAX_LENGTH = 20;
 const PHONE_MAX_LENGTH = 16;
+
+function parseEventDateAsLocalDay(value: string | null): Date | null {
+    if (!value) return null;
+    const datePart = value.slice(0, 10);
+    const parsed = new Date(`${datePart}T12:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getAttendanceWindowLabel(eventDate: string | null): { isClosed: boolean; label: string } {
+    const parsed = parseEventDateAsLocalDay(eventDate);
+    if (!parsed) {
+        return { isClosed: false, label: "Jadwal absensi mengikuti event aktif yang dipilih." };
+    }
+    const cutoff = new Date(parsed);
+    cutoff.setHours(23, 59, 59, 999);
+    if (Date.now() > cutoff.getTime()) {
+        return {
+            isClosed: true,
+            label: `Absensi untuk event ini ditutup pada ${parsed.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}.`,
+        };
+    }
+    return {
+        isClosed: false,
+        label: `Absensi dibuka sampai ${parsed.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}.`,
+    };
+}
 
 function digitsOnly(value: string): string {
     return value.replace(/\D+/g, "");
@@ -75,20 +101,27 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
     const participantStepRef = useRef<HTMLDivElement>(null);
     const successPrimaryButtonRef = useRef<HTMLButtonElement>(null);
 
-    const selectedParticipant = useMemo(
-        () => LONTARA_MEETING_PARTICIPANTS.find((item) => item.id === data.participantId) ?? null,
-        [data.participantId],
-    );
     const selectedEvent = useMemo(
         () => events.find((item) => item.code === selectedEventCode) ?? null,
         [events, selectedEventCode],
     );
+    const activeEventSource = selectedEvent?.code || activeEvent?.code || ATTENDANCE_SOURCE;
+
+    const activeParticipantsList = useMemo(
+        () => getParticipantsForEvent(activeEventSource),
+        [activeEventSource],
+    );
+
+    const selectedParticipant = useMemo(
+        () => activeParticipantsList.find((item) => item.id === data.participantId) ?? null,
+        [data.participantId, activeParticipantsList],
+    );
 
     const filteredParticipants = useMemo(() => {
-        if (!searchQuery) return LONTARA_MEETING_PARTICIPANTS;
+        if (!searchQuery) return activeParticipantsList;
         const query = searchQuery.toLowerCase();
-        return LONTARA_MEETING_PARTICIPANTS.filter((p) => p.label.toLowerCase().includes(query));
-    }, [searchQuery]);
+        return activeParticipantsList.filter((p) => p.label.toLowerCase().includes(query));
+    }, [searchQuery, activeParticipantsList]);
 
     const nameValidation = useMemo(() => validateAttendanceName(data.name), [data.name]);
     const phoneValidation = useMemo(
@@ -113,9 +146,10 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
         : null;
 
     const isRoleRequired = selectedRoleOptions.length > 0;
-    const activeEventSource = selectedEvent?.code || activeEvent?.code || ATTENDANCE_SOURCE;
+    // activeEventSource is already defined above
     const activeEventName = selectedEvent?.name || activeEvent?.name || "Koordinasi Lontara+";
     const selectedRoleStatus = selectedRoleStatuses.find((role) => role.role === data.participantRole);
+    const attendanceWindow = useMemo(() => getAttendanceWindowLabel(selectedEvent?.eventDate || activeEvent?.eventDate || null), [selectedEvent?.eventDate, activeEvent?.eventDate]);
     const isRoleValid = !isRoleRequired || Boolean(selectedRoleStatus && !selectedRoleStatus.isFull);
     const isNameValid = nameValidation.isValid;
     const isParticipantValid =
@@ -271,7 +305,7 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
             return;
         }
 
-        const participant = LONTARA_MEETING_PARTICIPANTS.find((item) => item.id === participantId) ?? null;
+        const participant = activeParticipantsList.find((item) => item.id === participantId) ?? null;
         const roleOptions = getParticipantRoleOptions(participant);
         const defaultParticipantRole = roleOptions.length > 0 ? "" : "-";
 
@@ -411,6 +445,7 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
                         <div>
                             <p className="text-xs font-bold tracking-wider uppercase text-[#991b1b]">Absensi Rapat</p>
                             <p className="font-bold text-[#172B4D] tracking-tight text-lg">{activeEventName}</p>
+                            <p className={`mt-1 text-xs font-bold uppercase tracking-[0.12em] ${attendanceWindow.isClosed ? "text-[#991b1b]" : "text-[#009FA9]"}`}>{attendanceWindow.label}</p>
                             {events.length > 1 && !preferredEventCode.trim() && (
                                 <select
                                     value={selectedEventCode}

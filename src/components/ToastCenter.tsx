@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getNotificationsForUser, markNotificationRead, subscribeWebNotifications, type WebNotification } from "@/lib/webNotificationStore";
-import { maybeDesktopNotify } from "@/lib/webNotify";
+import { maybeDesktopNotify, playBeep } from "@/lib/webNotify";
 
 type Toast = {
     id: string;
@@ -51,6 +51,7 @@ export default function ToastCenter({ userId }: { userId: string }) {
         setToasts((prev) => [t, ...prev].slice(0, 4));
 
         if (settings.desktop) {
+            playBeep();
             maybeDesktopNotify(n.title, n.body, () => {
                 if (n.link) router.push(n.link);
             });
@@ -78,7 +79,7 @@ export default function ToastCenter({ userId }: { userId: string }) {
         const interval = setInterval(async () => {
             const unread = (await getNotificationsForUser(userId)).filter((n) => !n.readAt);
             if (unread[0]) pushToast(unread[0]);
-        }, 4000);
+        }, 10000);
 
         return () => {
             unsub();

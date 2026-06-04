@@ -18,6 +18,14 @@ export function randomSuffix(length = 6): string {
   return Math.random().toString(36).slice(2, 2 + length);
 }
 
+export function randomDigits(length = 8): string {
+  let output = "";
+  while (output.length < length) {
+    output += Math.floor(Math.random() * 10).toString();
+  }
+  return output.slice(0, length);
+}
+
 export async function dismissVisibleToasts(page: Page): Promise<void> {
   const closeButtons = page.locator('button[title="Dismiss"]');
   const count = await closeButtons.count();
@@ -45,7 +53,6 @@ export async function loginAsStaff(page: Page, username: string, password: strin
 
   await expect(page).toHaveURL(/\/admin(\/.*)?$/);
   await page.waitForFunction(() => Boolean(window.sessionStorage.getItem("diskominfo_staff_session")), undefined, { timeout: 15000 });
-  await page.waitForLoadState("networkidle");
   await expect(page.getByRole("button", { name: "Sign Out" })).toBeVisible({ timeout: 15000 });
 }
 

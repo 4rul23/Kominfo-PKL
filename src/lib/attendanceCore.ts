@@ -1,9 +1,9 @@
 import {
     ATTENDANCE_SOURCE,
-    LONTARA_EXPECTED_PARTICIPANTS,
-    LONTARA_MEETING_PARTICIPANTS,
     getParticipantById,
     getParticipantRoleOptions,
+    getParticipantsForEvent,
+    getExpectedParticipantsCount,
 } from "@/lib/meetingParticipants";
 import { getAppDateKey } from "@/lib/timezone";
 
@@ -22,9 +22,7 @@ export interface AttendanceEntry {
     createdAt: string; // ISO timestamp
 }
 
-const PARTICIPANT_LIMITS = new Map(
-    LONTARA_MEETING_PARTICIPANTS.map((item) => [item.id, item.expectedCount] as const),
-);
+// Removed static PARTICIPANT_LIMITS map in favor of dynamic resolution.
 
 export interface AttendanceNameValidationResult {
     isValid: boolean;
@@ -296,7 +294,8 @@ export function createAttendanceEntry(
         throw new Error("Jabatan / unit peserta wajib dipilih.");
     }
 
-    const participantLimit = PARTICIPANT_LIMITS.get(participantId);
+    const eventParticipants = getParticipantsForEvent(source);
+    const participantLimit = eventParticipants.find((p) => p.id === participantId)?.expectedCount;
     if (!participantLimit || participantLimit < 1) {
         throw new Error("Peserta tidak terdaftar dalam daftar undangan.");
     }
@@ -306,8 +305,9 @@ export function createAttendanceEntry(
         (entry) => entry.source === source && entry.createdAt.startsWith(todayKey),
     );
 
-    if (sourceEntriesToday.length >= LONTARA_EXPECTED_PARTICIPANTS) {
-        throw new Error(`Kuota total peserta hari ini sudah penuh (${LONTARA_EXPECTED_PARTICIPANTS} peserta).`);
+    const expectedTotal = getExpectedParticipantsCount(source);
+    if (sourceEntriesToday.length >= expectedTotal) {
+        throw new Error(`Kuota total peserta hari ini sudah penuh (${expectedTotal} peserta).`);
     }
 
     const normalizedNip = nipValidation.normalizedValue;
@@ -333,7 +333,7 @@ export function createAttendanceEntry(
         throw new Error("Nama ini sudah tercatat pada jabatan / unit yang sama hari ini.");
     }
 
-    const canonicalParticipant = getParticipantById(participantId);
+    const canonicalParticipant = getParticipantById(participantId, source);
     const roleOptions = getParticipantRoleOptions(canonicalParticipant);
     const submittedParticipantRole = normalizeText(input.participantRole, "");
 
@@ -395,7 +395,8 @@ export function buildTodayParticipantQuotaMap(
     }
 
     const quotaMap: Record<string, ParticipantQuotaStatus> = {};
-    for (const participant of LONTARA_MEETING_PARTICIPANTS) {
+    const eventParticipants = getParticipantsForEvent(source);
+    for (const participant of eventParticipants) {
         const currentCount = counts.get(participant.id) ?? 0;
         const remainingCount = Math.max(0, participant.expectedCount - currentCount);
         quotaMap[participant.id] = {

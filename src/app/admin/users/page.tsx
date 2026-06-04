@@ -34,15 +34,23 @@ export default function UsersPage() {
     useEffect(() => {
         const boot = async () => {
             await seedDefaultStaffUsers();
-            const [users, orgData] = await Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]);
-            if (users.length > 0) {
-                localStorage.setItem("diskominfo_staff_users", JSON.stringify(users));
-            }
+            const [fetchedUsers, orgData] = await Promise.all([fetchStaffUsersFromServer(), fetchOrgDataFromServer()]);
             setOrgUnits(orgData.units);
-            load(users.length > 0 ? users : undefined);
+            load(fetchedUsers.length > 0 ? fetchedUsers : undefined);
         };
         void boot();
-        const i = setInterval(() => { void fetchStaffUsersFromServer().then((users) => load(users.length > 0 ? users : undefined)); }, 30000);
+        const i = setInterval(() => {
+            void fetchStaffUsersFromServer().then((fetchedUsers) => {
+                if (fetchedUsers.length > 0) {
+                    setUsers(prev => {
+                        if (prev.length !== fetchedUsers.length) return fetchedUsers;
+                        const changed = fetchedUsers.some((u, idx) => JSON.stringify(u) !== JSON.stringify(prev[idx]));
+                        return changed ? fetchedUsers : prev;
+                    });
+                    setLastUpdated(new Date());
+                }
+            });
+        }, 60000);
         return () => clearInterval(i);
     }, []);
 

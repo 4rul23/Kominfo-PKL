@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 import SuccessScreen from "./SuccessScreen";
 import { addVisitor } from "@/lib/visitorStore";
+import { type VisitorStatus } from "@/lib/visitorWorkflow";
 
 interface WizardData {
     name: string;
@@ -18,7 +20,7 @@ interface WizardData {
     nomorSurat: string;
 }
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 6;
 
 export default function RegistrationWizard({
     isOpen,
@@ -27,6 +29,7 @@ export default function RegistrationWizard({
     isOpen: boolean;
     onClose: () => void;
 }) {
+    const router = useRouter();
     const [step, setStep] = useState(1);
     const [data, setData] = useState<WizardData>({
         name: "",
@@ -40,21 +43,50 @@ export default function RegistrationWizard({
         nomorSurat: "",
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submittedVisitor, setSubmittedVisitor] = useState<{ trackingId: string; status: VisitorStatus } | null>(null);
+    const [formError, setFormError] = useState("");
+    const [unitStatuses, setUnitStatuses] = useState<Record<string, { status: "available" | "busy" | "unavailable"; note: string }>>({});
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (isOpen) {
             setTimeout(() => inputRef.current?.focus(), 500);
+            fetch("/api/units/status")
+                .then(res => res.json())
+                .then(data => setUnitStatuses(data || {}))
+                .catch(() => { });
         }
     }, [step, isOpen]);
 
     const handleNext = () => {
-        // Only require name, instansi asal, unit tujuan, dan keperluan
-        if (step === 1 && !data.name.trim()) return;
-        if (step === 2 && !data.organization.trim()) return;
-        if (step === 4 && !data.nip.trim()) return;
-        if (step === 5 && !data.unit.trim()) return;
-        if (step === 8 && !data.purpose.trim()) return;
+        setFormError("");
+        if (step === 1 && data.name.trim().length < 3) {
+            setFormError("Nama minimal 3 karakter.");
+            return;
+        }
+        if (step === 2 && data.organization.trim().length < 3) {
+            setFormError("Instansi minimal 3 karakter.");
+            return;
+        }
+        if (step === 3) {
+            const nip = data.nip.trim();
+            if (!/^\d{8,20}$/.test(nip)) {
+                setFormError("NIP / NIK harus berupa 8-20 digit angka.");
+                return;
+            }
+        }
+        if (step === 4 && !data.unit.trim()) {
+            setFormError("Pilih unit tujuan terlebih dahulu.");
+            return;
+        }
+        if (step === 5 && data.asalDaerah.trim() && data.asalDaerah.trim().length < 2) {
+            setFormError("Asal daerah minimal 2 karakter jika diisi.");
+            return;
+        }
+        if (step === 6 && data.purpose.trim().length < 6) {
+            setFormError("Keperluan minimal 6 karakter.");
+            return;
+        }
         setStep((prev) => Math.min(prev + 1, TOTAL_STEPS));
     };
 
@@ -62,9 +94,10 @@ export default function RegistrationWizard({
 
     const handleSubmit = async () => {
         setIsSubmitting(true);
+        setFormError("");
 
         try {
-            await addVisitor({
+            const visitor = await addVisitor({
                 name: data.name,
                 nip: data.nip || "-",
                 jabatan: data.jabatan || "-",
@@ -75,11 +108,13 @@ export default function RegistrationWizard({
                 purpose: data.purpose,
                 nomorSurat: data.nomorSurat || "-",
             });
+            setSubmittedVisitor({ trackingId: visitor.trackingId, status: visitor.status });
             setTimeout(() => {
                 setIsSubmitting(false);
                 setStep(TOTAL_STEPS + 1);
             }, 1000);
-        } catch {
+        } catch (error) {
+            setFormError(error instanceof Error ? error.message : "Gagal menyimpan kunjungan.");
             setIsSubmitting(false);
         }
     };
@@ -132,10 +167,10 @@ export default function RegistrationWizard({
             </div>
 
             {/* Main Content */}
-            <div className="relative z-10 w-full max-w-3xl px-6 flex flex-col items-center text-center pt-32">
+            <div className={`relative z-10 w-full px-6 flex flex-col items-center text-center ${step === 4 ? 'max-w-5xl pt-16' : 'max-w-3xl pt-32'}`}>
                 {/* Progress */}
                 {step <= TOTAL_STEPS && (
-                    <div className="flex items-center gap-1.5 mb-12">
+                    <div className={`flex items-center gap-1.5 ${step === 4 ? 'mb-6' : 'mb-12'}`}>
                         {Array.from({ length: TOTAL_STEPS }, (_, i) => (
                             <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i + 1 === step ? "w-10 bg-[#991b1b]" : i + 1 < step ? "w-3 bg-[#36B37E]" : "w-2 bg-gray-200"}`} />
                         ))}
@@ -149,7 +184,7 @@ export default function RegistrationWizard({
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -15, scale: 0.98 }}
                         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                        className="w-full min-h-[380px] flex flex-col items-center justify-center relative"
+                        className={`w-full flex flex-col items-center relative ${step === 4 ? "min-h-0 justify-start pb-8" : "min-h-[380px] justify-center"}`}
                     >
                         {/* Step 1: Nama */}
                         {step === 1 && (
@@ -160,6 +195,7 @@ export default function RegistrationWizard({
                                 <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Siapa nama Anda?</h2>
                                 <p className="text-[#505F79] text-lg font-medium">Masukkan nama lengkap Anda.</p>
                                 <input ref={inputRef} type="text" value={data.name} onChange={(e) => setData({ ...data, name: e.target.value })} onKeyDown={handleKeyDown} placeholder="Nama Lengkap..." className={underlineInputClass} />
+                                {formError && <p className="text-sm font-semibold text-[#991b1b]">{formError}</p>}
                             </div>
                         )}
 
@@ -172,51 +208,12 @@ export default function RegistrationWizard({
                                 <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Instansi?</h2>
                                 <p className="text-[#505F79] text-lg font-medium">Organisasi atau lembaga Anda.</p>
                                 <input ref={inputRef} type="text" value={data.organization} onChange={(e) => setData({ ...data, organization: e.target.value })} onKeyDown={handleKeyDown} placeholder="PT / Dinas / Umum..." className={underlineInputClass} />
+                                {formError && <p className="text-sm font-semibold text-[#991b1b]">{formError}</p>}
                             </div>
                         )}
 
-                        {/* Step 3: Jabatan */}
+                        {/* Step 3: NIP/NIK */}
                         {step === 3 && (
-                            <motion.div
-                                className="w-full space-y-8 flex flex-col items-center"
-                                initial="hidden" animate="visible" exit="exit"
-                                variants={{
-                                    hidden: { opacity: 0, y: 30, scale: 0.9 },
-                                    visible: {
-                                        opacity: 1, y: 0, scale: 1,
-                                        transition: { staggerChildren: 0.1, delayChildren: 0.2, type: "spring", stiffness: 200, damping: 20 }
-                                    },
-                                    exit: { opacity: 0, y: -20, scale: 0.95 }
-                                }}
-                            >
-                                <motion.span variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.75rem] font-bold uppercase tracking-widest rounded-lg border ${currentColor.border} mb-2 shadow-sm`}>
-                                    Langkah 3 dari {TOTAL_STEPS}
-                                </motion.span>
-                                <motion.h2 variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Posisi Anda?</motion.h2>
-                                <motion.p variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="text-[#505F79] text-lg font-medium">Ketik jabatan atau peran Anda saat ini.</motion.p>
-
-                                <motion.div variants={{ hidden: { opacity: 0, scale: 0.9 }, visible: { opacity: 1, scale: 1 } }} className="w-full max-w-xl relative mt-4">
-                                    <div className="absolute inset-y-0 left-6 flex items-center pointer-events-none">
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
-                                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                                            <circle cx="12" cy="7" r="4"></circle>
-                                        </svg>
-                                    </div>
-                                    <input ref={inputRef} type="text" value={data.jabatan} onChange={(e) => setData({ ...data, jabatan: e.target.value })} onKeyDown={handleKeyDown} placeholder="Kepala Bidang / Staff..." className={underlineInputWithIconClass} />
-                                </motion.div>
-
-                                <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className="flex flex-wrap items-center justify-center gap-2 mt-4 max-w-lg">
-                                    {["Kepala Dinas", "Sekretaris", "Kepala Bidang", "Staff APIP", "Tamu Umum"].map((sugg) => (
-                                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={sugg} onClick={() => setData({ ...data, jabatan: sugg })} className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors border-2 ${data.jabatan === sugg ? "bg-[#009FA9] text-white border-[#009FA9]" : "bg-white/50 text-slate-500 border-white hover:border-[#009FA9]/30"}`}>
-                                            {sugg}
-                                        </motion.button>
-                                    ))}
-                                </motion.div>
-                            </motion.div>
-                        )}
-
-                        {/* Step 4: NIP/NIK */}
-                        {step === 4 && (
                             <motion.div
                                 className="w-full space-y-8 flex flex-col items-center"
                                 initial="hidden" animate="visible" exit="exit"
@@ -227,7 +224,7 @@ export default function RegistrationWizard({
                                 }}
                             >
                                 <motion.span variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.75rem] font-bold uppercase tracking-widest rounded-lg border ${currentColor.border} mb-2 shadow-sm`}>
-                                    Langkah 4 dari {TOTAL_STEPS}
+                                    Langkah 3 dari {TOTAL_STEPS}
                                 </motion.span>
                                 <motion.h2 variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Validasi Identitas</motion.h2>
                                 <motion.p variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className="text-[#505F79] text-lg font-medium">Masukkan NIP untuk ASN, atau NIK untuk Umum.</motion.p>
@@ -243,110 +240,101 @@ export default function RegistrationWizard({
                                     </div>
                                     <input ref={inputRef} inputMode="numeric" type="text" value={data.nip} onChange={(e) => setData({ ...data, nip: e.target.value })} onKeyDown={handleKeyDown} placeholder="19700101... atau 7371..." className={underlineInputWithIconClass} />
                                 </motion.div>
+                                {formError && <p className="text-sm font-semibold text-[#991b1b]">{formError}</p>}
                             </motion.div>
                         )}
 
-                        {/* Step 5: Unit Tujuan */}
-                        {step === 5 && (
+                        {/* Step 4: Unit Tujuan */}
+                        {step === 4 && (
                             <motion.div
-                                className="w-full space-y-6 flex flex-col items-center"
+                                className="w-full space-y-4 flex flex-col items-center"
                                 initial="hidden" animate="visible" exit="exit"
                                 variants={{
                                     hidden: { opacity: 0, scale: 0.95 },
-                                    visible: { opacity: 1, scale: 1, transition: { staggerChildren: 0.15 } },
+                                    visible: { opacity: 1, scale: 1, transition: { staggerChildren: 0.08 } },
                                     exit: { opacity: 0, scale: 0.95 }
                                 }}
                             >
-                                <motion.span variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.75rem] font-bold uppercase tracking-widest rounded-lg border ${currentColor.border} mb-2 shadow-sm`}>
-                                    Langkah 5 dari {TOTAL_STEPS}
+                                <motion.span variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.75rem] font-bold uppercase tracking-widest rounded-lg border ${currentColor.border} shadow-sm`}>
+                                    Langkah 4 dari {TOTAL_STEPS}
                                 </motion.span>
-                                <motion.h2 variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Tujuan Kunjungan?</motion.h2>
-                                <motion.p variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="text-[#505F79] text-lg font-medium">Pilih unit yang ingin Anda tuju.</motion.p>
+                                <motion.h2 variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="text-3xl md:text-4xl font-extrabold text-[#172B4D] tracking-tight leading-tight mt-2">Tujuan Kunjungan?</motion.h2>
+                                <motion.p variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="text-[#505F79] text-base font-medium mt-1">Pilih unit yang ingin Anda tuju.</motion.p>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl mx-auto mt-8 perspective-1000">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full mt-6">
                                     {[
-                                        {
-                                            label: "UPT Warroom", desc: "Ruang Komando dan Pemantauan Kota Makassar", icon: (
-                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18" /><path d="M7 14l4-4 3 3 7-7" /></svg>
-                                            )
-                                        },
-                                        {
-                                            label: "Diskominfo Makassar", desc: "Layanan Persuratan dan Administrasi Publik", icon: (
-                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 21h18" /><path d="M5 21V7l8-4 8 4v14" /><path d="M9 21v-8h6v8" /></svg>
-                                            )
-                                        },
-                                    ].map((opt) => (
-                                        <motion.button
-                                            key={opt.label}
-                                            variants={{
-                                                hidden: { opacity: 0, y: 30, rotateX: 20 },
-                                                visible: { opacity: 1, y: 0, rotateX: 0, transition: { type: "spring", stiffness: 200 } }
-                                            }}
-                                            whileHover={{ scale: 1.03, y: -4, rotateY: 2 }}
-                                            whileTap={{ scale: 0.97 }}
-                                            onClick={() => { setData({ ...data, unit: opt.label }); setTimeout(() => setStep(s => Math.min(s + 1, TOTAL_STEPS)), 200); }}
-                                            className={`relative overflow-hidden p-6 rounded-3xl border-2 text-left transition-all duration-300 ${data.unit === opt.label ? "bg-gradient-to-br from-[#009FA9] to-[#007A82] text-white border-transparent shadow-xl shadow-[#009FA9]/30" : "bg-white/80 backdrop-blur-sm border-white text-[#172B4D] shadow-[0_8px_30px_rgba(23,43,77,0.06)] hover:border-[#009FA9]/30 hover:shadow-[0_12px_40px_rgba(0,159,169,0.15)]"}`}
-                                        >
-                                            {/* Selection Indicator */}
-                                            {data.unit === opt.label && (
-                                                <motion.div layoutId="unit-selection" className="absolute inset-0 bg-white/10 pointer-events-none" initial={{ opacity: 0 }} animate={{ opacity: 1 }} />
-                                            )}
-                                            <div className="flex flex-col gap-4 relative z-10">
-                                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${data.unit === opt.label ? "bg-white/20 text-white shadow-inner" : "bg-[#009FA9]/10 text-[#009FA9]"}`}>
-                                                    {opt.icon}
+                                        { label: "UPT Warroom", desc: "Ruang Komando & Pemantauan Kota Makassar", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18" /><path d="M7 14l4-4 3 3 7-7" /></svg> },
+                                        { label: "Sekretariat Diskominfo", desc: "Administrasi umum, kepegawaian & perencanaan", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 21h18" /><path d="M5 21V7l8-4 8 4v14" /><path d="M9 21v-8h6v8" /></svg> },
+                                        { label: "Bidang IKP", desc: "Informasi & Komunikasi Publik / Humas", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg> },
+                                        { label: "Bidang APTIKA", desc: "Aplikasi dan Informatika", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M9 9h6v6H9z" /></svg> },
+                                        { label: "Bidang PDE Statistik", desc: "Pengolahan Data Elektronik dan Statistik", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg> },
+                                        { label: "Bidang Persandian dan Keamanan Informasi", desc: "Keamanan informasi & persandian daerah", icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> },
+                                    ].map((opt) => {
+                                        const unitStatus = unitStatuses[opt.label];
+                                        const isSelected = data.unit === opt.label;
+                                        return (
+                                            <motion.button
+                                                key={opt.label}
+                                                variants={{
+                                                    hidden: { opacity: 0, y: 20 },
+                                                    visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 260, damping: 20 } }
+                                                }}
+                                                whileHover={{ scale: 1.02, y: -3 }}
+                                                whileTap={{ scale: 0.98 }}
+                                                onClick={() => { setData({ ...data, unit: opt.label }); setTimeout(() => setStep(s => Math.min(s + 1, TOTAL_STEPS)), 200); }}
+                                                className={`relative overflow-hidden px-5 py-5 rounded-2xl border-2 text-left transition-all duration-200 flex flex-col h-full ${isSelected ? "bg-gradient-to-r from-[#009FA9] to-[#007A82] text-white border-transparent shadow-lg shadow-[#009FA9]/25" : "bg-white/90 backdrop-blur-sm border-gray-100 text-[#172B4D] hover:border-[#009FA9]/30 hover:shadow-md"}`}
+                                            >
+                                                <div className="flex flex-col gap-3 relative z-10 h-full">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-14 h-14 shrink-0 rounded-2xl flex items-center justify-center ${isSelected ? "bg-white/20 text-white shadow-inner" : "bg-[#009FA9]/10 text-[#009FA9]"}`}>
+                                                            {opt.icon}
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <h3 className="font-bold text-base leading-tight">{opt.label}</h3>
+                                                            <div className="mt-1">
+                                                                {unitStatus && unitStatus.status !== "available" ? (
+                                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${unitStatus.status === 'busy' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                                                                        {unitStatus.status === 'busy' ? '● Sedang Sibuk' : '● Tidak Tersedia'}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isSelected ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-600'}`}>● Tersedia</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <p className={`text-sm mt-1 leading-snug flex-1 ${isSelected ? "text-white/80" : "text-[#505F79]"}`}>{opt.desc}</p>
+                                                    {unitStatus?.note && (
+                                                        <p className={`text-xs mt-2 font-semibold italic ${isSelected ? 'text-white/90 bg-black/10 p-2 rounded-xl' : (unitStatus.status === 'busy' ? 'text-amber-800 bg-amber-50 p-2 rounded-xl' : 'text-red-800 bg-red-50 p-2 rounded-xl')}`}>
+                                                            &ldquo;{unitStatus.note}&rdquo;
+                                                        </p>
+                                                    )}
                                                 </div>
-                                                <div>
-                                                    <p className="text-xl font-extrabold tracking-tight mb-1">{opt.label}</p>
-                                                    <p className={`text-sm leading-relaxed ${data.unit === opt.label ? "text-white/80" : "text-[#505F79]"}`}>{opt.desc}</p>
-                                                </div>
-                                            </div>
-                                        </motion.button>
-                                    ))}
+                                            </motion.button>
+                                        );
+                                    })}
                                 </div>
+                                {formError && <p className="text-sm font-semibold text-[#991b1b]">{formError}</p>}
                             </motion.div>
                         )}
 
-                        {/* Step 6: Asal Daerah */}
+                        {/* Step 5: Asal Daerah */}
+                        {step === 5 && (
+                            <div className="w-full space-y-6">
+                                <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
+                                    Langkah 5 dari {TOTAL_STEPS}
+                                </span>
+                                <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Daerah?</h2>
+                                <p className="text-[#505F79] text-lg font-medium">Kota atau kabupaten asal instansi Anda berada.</p>
+                                <input ref={inputRef} type="text" value={data.asalDaerah} onChange={(e) => setData({ ...data, asalDaerah: e.target.value })} onKeyDown={handleKeyDown} placeholder="Makassar, Gowa..." className={underlineInputClass} />
+                                {formError && <p className="text-sm font-semibold text-[#991b1b]">{formError}</p>}
+                            </div>
+                        )}
+
+                        {/* Step 6: Keperluan */}
                         {step === 6 && (
                             <div className="w-full space-y-6">
                                 <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
                                     Langkah 6 dari {TOTAL_STEPS}
-                                </span>
-                                <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Asal Daerah?</h2>
-                                <p className="text-[#505F79] text-lg font-medium">Kota atau kabupaten asal.</p>
-                                <input ref={inputRef} type="text" value={data.asalDaerah} onChange={(e) => setData({ ...data, asalDaerah: e.target.value })} onKeyDown={handleKeyDown} placeholder="Makassar, Gowa..." className={underlineInputClass} />
-                            </div>
-                        )}
-
-                        {/* Step 7: Provinsi */}
-                        {step === 7 && (
-                            <div className="w-full space-y-6">
-                                <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
-                                    Langkah 7 dari {TOTAL_STEPS}
-                                </span>
-                                <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Provinsi?</h2>
-                                <p className="text-[#505F79] text-lg font-medium">Pilih provinsi asal Anda.</p>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 w-full max-w-3xl mx-auto mt-6 max-h-[320px] overflow-y-auto p-2">
-                                    {[
-                                        "Aceh", "Sumatera Utara", "Sumatera Barat", "Riau", "Jambi", "Sumatera Selatan", "Bengkulu", "Lampung",
-                                        "Kepulauan Bangka Belitung", "Kepulauan Riau", "DKI Jakarta", "Jawa Barat", "Jawa Tengah", "DI Yogyakarta", "Jawa Timur", "Banten",
-                                        "Bali", "Nusa Tenggara Barat", "Nusa Tenggara Timur", "Kalimantan Barat", "Kalimantan Tengah", "Kalimantan Selatan", "Kalimantan Timur", "Kalimantan Utara",
-                                        "Sulawesi Utara", "Sulawesi Tengah", "Sulawesi Selatan", "Sulawesi Tenggara", "Gorontalo", "Sulawesi Barat",
-                                        "Maluku", "Maluku Utara", "Papua Barat", "Papua", "Papua Tengah", "Papua Pegunungan", "Papua Selatan", "Papua Barat Daya"
-                                    ].map((prov) => (
-                                        <button key={prov} onClick={() => { setData({ ...data, provinsi: prov }); setTimeout(() => setStep(s => Math.min(s + 1, TOTAL_STEPS)), 150); }} className={`p-3 rounded-xl border-2 transition-all duration-300 hover:-translate-y-1 text-left ${data.provinsi === prov ? "bg-[#009FA9] text-white border-[#009FA9] shadow-lg shadow-[#009FA9]/20 scale-[1.02]" : "bg-white border-slate-200 text-[#505F79] hover:border-[#009FA9] hover:shadow-md hover:shadow-slate-200/50"}`}>
-                                            <span className="text-xs font-semibold">{prov}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Step 8: Keperluan */}
-                        {step === 8 && (
-                            <div className="w-full space-y-6">
-                                <span className={`inline-block px-3 py-1 ${currentColor.bg} ${currentColor.text} text-[0.7rem] font-bold uppercase tracking-wider rounded-lg border ${currentColor.border} mb-2`}>
-                                    Langkah 8 dari {TOTAL_STEPS}
                                 </span>
                                 <h2 className="text-4xl md:text-5xl font-extrabold text-[#172B4D] tracking-tight leading-tight">Keperluan?</h2>
                                 <p className="text-[#505F79] text-lg font-medium">Jelaskan maksud kunjungan Anda.</p>
@@ -355,6 +343,7 @@ export default function RegistrationWizard({
                                     <label className="block text-xs font-bold text-[#505F79] uppercase mb-2">Nomor Surat (Opsional)</label>
                                     <input type="text" value={data.nomorSurat} onChange={(e) => setData({ ...data, nomorSurat: e.target.value })} placeholder="123/DK/2026" className={compactUnderlineInputClass} />
                                 </div>
+                                {formError && <p className="text-sm font-semibold text-[#991b1b]">{formError}</p>}
                             </div>
                         )}
 
@@ -364,10 +353,15 @@ export default function RegistrationWizard({
                                 <SuccessScreen
                                     visitorName={data.name}
                                     unit={data.unit || "-"}
+                                    trackingId={submittedVisitor?.trackingId}
                                     photo={null}
+                                    unitStatusInfo={data.unit ? unitStatuses[data.unit] : null}
+                                    onTrack={() => router.push(`/guest/tracking?id=${encodeURIComponent(submittedVisitor?.trackingId || "")}`)}
                                     onClose={() => {
                                         setStep(1);
                                         setData({ name: "", nip: "", jabatan: "", organization: "", asalDaerah: "", provinsi: "", unit: "", purpose: "", nomorSurat: "" });
+                                        setSubmittedVisitor(null);
+                                        setFormError("");
                                         onClose();
                                     }}
                                 />
@@ -377,35 +371,37 @@ export default function RegistrationWizard({
                 </AnimatePresence>
 
                 {/* Footer Navigation */}
-                {step <= TOTAL_STEPS && (
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="mt-16 flex items-center justify-center gap-6">
-                        {step > 1 && (
-                            <motion.button whileHover={{ scale: 1.05, backgroundColor: "rgba(243, 244, 246, 1)" }} whileTap={{ scale: 0.95 }} onClick={handleBack} className="flex items-center gap-2 text-[#505F79]/60 hover:text-[#172B4D] transition-colors font-bold uppercase text-xs tracking-widest px-4 py-3 rounded-xl hover:bg-gray-100">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M19 12H5M12 19l-7-7 7-7" />
-                                </svg>
-                                Kembali
-                            </motion.button>
-                        )}
-                        <motion.button
-                            whileHover={{ scale: 1.05, y: -4 }}
-                            whileTap={{ scale: 0.95 }}
-                        onClick={step < TOTAL_STEPS ? handleNext : handleSubmit}
-                        disabled={isSubmitting}
-                            className={`group flex items-center justify-center gap-3 px-10 py-4 text-white rounded-3xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${step === TOTAL_STEPS ? "bg-[#991b1b] shadow-[0_8px_30px_rgba(211,47,47,0.25)] hover:bg-[#b91c1c]" : "bg-[#009FA9] shadow-[0_8px_30px_rgba(0,159,169,0.25)] hover:bg-[#007A82]"}`}
-                        >
-                            <span className="font-extrabold text-lg tracking-wide">
-                                {isSubmitting ? "Memproses..." : step < TOTAL_STEPS ? "Lanjut" : "Simpan Data"}
-                            </span>
-                            {!isSubmitting && (
-                                <motion.svg initial={{ x: 0 }} animate={{ x: [0, 5, 0] }} transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M5 12h14M12 5l7 7-7 7" />
-                                </motion.svg>
+                {
+                    step <= TOTAL_STEPS && (
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className={`${step === 4 ? 'mt-8' : 'mt-16'} flex items-center justify-center gap-6`}>
+                            {step > 1 && (
+                                <motion.button whileHover={{ scale: 1.05, backgroundColor: "rgba(243, 244, 246, 1)" }} whileTap={{ scale: 0.95 }} onClick={handleBack} className="flex items-center gap-2 text-[#505F79]/60 hover:text-[#172B4D] transition-colors font-bold uppercase text-xs tracking-widest px-4 py-3 rounded-xl hover:bg-gray-100">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M19 12H5M12 19l-7-7 7-7" />
+                                    </svg>
+                                    Kembali
+                                </motion.button>
                             )}
-                        </motion.button>
-                    </motion.div>
-                )}
-            </div>
-        </div>
+                            <motion.button
+                                whileHover={{ scale: 1.05, y: -4 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={step < TOTAL_STEPS ? handleNext : handleSubmit}
+                                disabled={isSubmitting}
+                                className={`group flex items-center justify-center gap-3 px-10 py-4 text-white rounded-3xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${step === TOTAL_STEPS ? "bg-[#991b1b] shadow-[0_8px_30px_rgba(211,47,47,0.25)] hover:bg-[#b91c1c]" : "bg-[#009FA9] shadow-[0_8px_30px_rgba(0,159,169,0.25)] hover:bg-[#007A82]"}`}
+                            >
+                                <span className="font-extrabold text-lg tracking-wide">
+                                    {isSubmitting ? "Memproses..." : step < TOTAL_STEPS ? "Lanjut" : "Simpan Data"}
+                                </span>
+                                {!isSubmitting && (
+                                    <motion.svg initial={{ x: 0 }} animate={{ x: [0, 5, 0] }} transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M5 12h14M12 5l7 7-7 7" />
+                                    </motion.svg>
+                                )}
+                            </motion.button>
+                        </motion.div>
+                    )
+                }
+            </div >
+        </div >
     );
 }

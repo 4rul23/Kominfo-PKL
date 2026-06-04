@@ -1,9 +1,11 @@
 "use client";
 
 import { createClientSafeId } from "@/lib/id";
+import { type VisitorStatus, type VisitorStatusHistoryEntry } from "@/lib/visitorWorkflow";
 
 export interface Visitor {
     id: string;
+    trackingId: string;
     name: string;
     nip: string;
     jabatan: string;
@@ -13,16 +15,14 @@ export interface Visitor {
     unit: string;
     purpose: string;
     nomorSurat: string;
+    status: VisitorStatus;
+    statusHistory: VisitorStatusHistoryEntry[];
+    forwardedOrgUnitId?: string | null;
+    forwardedOrgUnitName?: string | null;
+    assignedOperatorName?: string | null;
+    decisionNote?: string | null;
     timestamp: string;
     date: string;
-}
-
-const STORAGE_KEY = "diskominfo_visitors";
-
-export function getVisitors(): Visitor[] {
-    if (typeof window === "undefined") return [];
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
 }
 
 export async function fetchVisitorsFromServer(): Promise<Visitor[]> {
@@ -32,13 +32,7 @@ export async function fetchVisitorsFromServer(): Promise<Visitor[]> {
     return Array.isArray(data.visitors) ? data.visitors : [];
 }
 
-export async function hydrateVisitorsFromServer(): Promise<void> {
-    if (typeof window === "undefined") return;
-    const visitors = await fetchVisitorsFromServer();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(visitors));
-}
-
-export async function addVisitor(visitor: Omit<Visitor, "id" | "timestamp" | "date">): Promise<Visitor> {
+export async function addVisitor(visitor: Omit<Visitor, "id" | "trackingId" | "status" | "statusHistory" | "timestamp" | "date">): Promise<Visitor> {
     const payload = {
         ...visitor,
         id: createClientSafeId("visitor"),
@@ -52,15 +46,19 @@ export async function addVisitor(visitor: Omit<Visitor, "id" | "timestamp" | "da
     if (!response.ok || !data.visitor) {
         throw new Error(data.message || "Gagal menyimpan data tamu.");
     }
-
-    const visitors = getVisitors().filter((item) => item.id !== data.visitor!.id);
-    visitors.unshift(data.visitor);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(visitors));
     return data.visitor;
 }
 
-export function getStats() {
-    const visitors = getVisitors();
+export async function getVisitorByTrackingIdFromServer(trackingId: string): Promise<Visitor | null> {
+    const clean = trackingId.trim();
+    if (!clean) return null;
+    const response = await fetch(`/api/visitors?trackingId=${encodeURIComponent(clean)}&_t=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const data = (await response.json().catch(() => ({}))) as { visitor?: Visitor | null };
+    return data.visitor || null;
+}
+
+export function getStats(visitors: Visitor[]) {
     const today = new Date().toISOString().split("T")[0];
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -87,8 +85,7 @@ export function getStats() {
     return { today: todayVisitors.length, week: weekVisitors.length, month: monthVisitors.length, total: visitors.length, peakHour: peakHour !== "-" ? `${peakHour}:00` : "-", topProvinsi, provinsiCounts, hourlyData, avgPerDay };
 }
 
-export function exportToCSV(): string {
-    const visitors = getVisitors();
+export function exportToCSV(visitors: Visitor[]): string {
     const headers = ["Nama", "NIP/NIK", "Jabatan", "Instansi", "Asal Daerah", "Provinsi", "Unit Tujuan", "Keperluan", "Nomor Surat", "Tanggal", "Waktu"];
     const rows = visitors.map((v) => [v.name, v.nip, v.jabatan, v.organization, v.asalDaerah, v.provinsi, v.unit, v.purpose, v.nomorSurat, v.date, v.timestamp]);
     return [headers.join(","), ...rows.map((r) => r.map((c) => `"${c}"`).join(","))].join("\n");
@@ -96,7 +93,10 @@ export function exportToCSV(): string {
 
 export async function clearVisitors(): Promise<void> {
     await fetch("/api/visitors", { method: "DELETE" });
-    localStorage.removeItem(STORAGE_KEY);
+}
+
+export async function deleteVisitor(id: string): Promise<void> {
+    await fetch(`/api/visitors?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function seedDummyData(): Promise<void> {

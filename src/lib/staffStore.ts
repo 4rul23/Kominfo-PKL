@@ -40,7 +40,10 @@ export async function fetchStaffUsersFromServer(): Promise<StaffUser[]> {
 export async function hydrateStaffUsersFromServer(): Promise<void> {
     if (typeof window === "undefined") return;
     const users = await fetchStaffUsersFromServer();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+    const str = JSON.stringify(users);
+    if (str !== localStorage.getItem(STORAGE_KEY)) {
+        localStorage.setItem(STORAGE_KEY, str);
+    }
 }
 
 export async function upsertStaffUser(user: Omit<StaffUser, "timestamp" | "date">): Promise<StaffUser> {
