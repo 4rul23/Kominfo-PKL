@@ -103,6 +103,7 @@ export default function Home() {
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [selectedEventCode, setSelectedEventCode] = useState("");
   const [queryEventCode, setQueryEventCode] = useState("");
+  const [isInitialized, setIsInitialized] = useState(false);
   const activeEventSource = selectedEventCode || activeEvent?.code || ATTENDANCE_SOURCE;
   const selectedEvent = useMemo(
     () => events.find((event) => event.code === activeEventSource) ?? activeEvent ?? null,
@@ -141,6 +142,8 @@ export default function Home() {
         setActiveEvent(null);
         setEvents([]);
         setSelectedEventCode(ATTENDANCE_SOURCE);
+      } finally {
+        setIsInitialized(true);
       }
     };
     void loadActiveEvent();
@@ -302,6 +305,14 @@ export default function Home() {
 
   const visitorLimit = 3;
   const visitorList = useMemo(() => {
+    if (!isInitialized) {
+      return (
+        <div className="py-4 text-sm text-slate-400 animate-pulse">
+          Memuat data...
+        </div>
+      );
+    }
+
     if (recentAttendance.length === 0) {
       return (
         <div className="py-4 text-sm text-slate-400">
@@ -641,7 +652,7 @@ export default function Home() {
               <div className="absolute inset-0 bg-gradient-to-br from-white via-white to-[#F7FBFD] pointer-events-none" />
               <div className="absolute -right-24 -top-28 w-72 h-72 bg-gradient-to-bl from-[#009FA9]/10 to-transparent rounded-full blur-3xl pointer-events-none" />
 
-              <div className="relative z-[1] h-full flex flex-col">
+              <div className="relative z-[1] h-full flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-[#f0fcfc] text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[#009FA9] border border-[#009FA9]/20">
                     Informasi Kunjungan
@@ -651,43 +662,51 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="mt-3.5 rounded-2xl border border-[#e7eef6] bg-white/80 px-4 py-2.5">
+                <div className="my-auto py-2 flex flex-col justify-center">
                   <p className="text-[0.74rem] font-semibold uppercase tracking-[0.12em] text-[#6B778C]">
                     Kehadiran Rapat Hari Ini
                   </p>
-                  <div className="mt-1 flex items-end justify-between gap-3">
-                    <h3 className={`font-black tracking-[-0.04em] text-[#172B4D] leading-none ${isGuestListVisible ? "text-[clamp(2.5rem,4vw,3.6rem)]" : "text-[clamp(3rem,5.5vw,4.2rem)]"}`}>
-                      {todayAttendanceCount.toLocaleString("id-ID")}
+                  <div className="mt-1.5 flex items-baseline gap-2">
+                    <h3 className={`font-black tracking-[-0.04em] text-[#172B4D] leading-none ${isGuestListVisible ? "text-[clamp(2.5rem,4vw,3.6rem)]" : "text-[clamp(3.8rem,6vw,5rem)]"} ${!isInitialized ? "animate-pulse opacity-20" : ""}`}>
+                      {isInitialized ? todayAttendanceCount.toLocaleString("id-ID") : "..."}
                     </h3>
-                    <span className="text-[0.85rem] font-semibold text-slate-400 pb-0.5">
+                    <span className="text-[0.85rem] font-semibold text-slate-400">
                       hadir
                     </span>
                   </div>
                 </div>
 
-                <div className="mt-2.5 flex items-center justify-between gap-2">
-                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.74rem] font-bold ${trendInfo.isUp ? "bg-[#e7f6ee] text-[#1f7a46]" : "bg-[#fdecea] text-[#c5221f]"}`}>
-                    {trendInfo.isUp ? (
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+                <div className="flex items-end justify-between gap-3 pt-1.5 border-t border-slate-100/50">
+                  <div className="flex items-center">
+                    {isInitialized ? (
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.74rem] font-bold ${trendInfo.isUp ? "bg-[#e7f6ee] text-[#1f7a46]" : "bg-[#fdecea] text-[#c5221f]"}`}>
+                        {trendInfo.isUp ? (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+                        ) : (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                        )}
+                        {trendInfo.label.replace("↑ ", "").replace("↓ ", "")}
+                      </span>
                     ) : (
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                      <span className="inline-flex items-center px-12 py-3 rounded-lg bg-slate-100 animate-pulse" />
                     )}
-                    {trendInfo.label.replace("↑ ", "").replace("↓ ", "")}
-                  </span>
-                </div>
+                  </div>
 
-                <div className="mt-auto grid grid-cols-5 items-end gap-1.5 h-9">
-                  {attendanceBars.map((bar, index) => (
-                    <div
-                      key={`bar-${index}`}
-                      className="rounded-[6px]"
-                      style={{
-                        height: `${bar.height}%`,
-                        background: bar.isActive ? bar.color : "#dbe8fb",
-                        opacity: bar.isActive ? 1 : 0.75,
-                      }}
-                    />
-                  ))}
+                  {isInitialized && (
+                    <div className="flex items-end gap-1.5 h-8">
+                      {attendanceBars.map((bar, index) => (
+                        <div
+                          key={`bar-${index}`}
+                          className="rounded-[3px] w-[6px]"
+                          style={{
+                            height: `${bar.height}%`,
+                            background: bar.isActive ? bar.color : "#dbe8fb",
+                            opacity: bar.isActive ? 1 : 0.75,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.article>
