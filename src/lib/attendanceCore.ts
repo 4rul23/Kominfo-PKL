@@ -116,7 +116,8 @@ export function validateAttendanceName(name: string): AttendanceNameValidationRe
         };
     }
 
-    if (!/^[A-Za-zÀ-ÿ'`.\-\s]+$/.test(normalizedName)) {
+    // Allowed characters: letters, spaces, and punctuation: ' ` . , -
+    if (!/^[A-Za-zÀ-ÿ'`.,\-\s]+$/.test(normalizedName)) {
         return {
             isValid: false,
             message: "Nama hanya boleh berisi huruf dan tanda baca umum.",
@@ -124,11 +125,11 @@ export function validateAttendanceName(name: string): AttendanceNameValidationRe
         };
     }
 
-    const compact = normalizedName.replace(/[\s'`.\-]+/g, "");
-    if (compact.length < 4) {
+    const compact = normalizedName.replace(/[\s'`.,\-]+/g, "");
+    if (compact.length < 2) {
         return {
             isValid: false,
-            message: "Nama minimal 4 huruf.",
+            message: "Nama minimal 2 huruf.",
             normalizedName,
         };
     }
@@ -153,8 +154,9 @@ export function validateAttendanceName(name: string): AttendanceNameValidationRe
         "test",
         "testing",
     ]);
-    const looksLikeKeyboardMash = /^(asd|qwe|zxc)[a-z]*$/i.test(lowercaseCompact);
-    if (obviousDummyNames.has(lowercaseCompact) || looksLikeKeyboardMash) {
+    
+    // Removed overly broad /^(asd|qwe|zxc)[a-z]*$/ regex which incorrectly blocked valid South Sulawesi names like 'Asdar' or 'Asdiana'
+    if (obviousDummyNames.has(lowercaseCompact)) {
         return {
             isValid: false,
             message: "Nama terlihat seperti teks acak. Gunakan nama asli peserta.",
