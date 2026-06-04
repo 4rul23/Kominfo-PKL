@@ -313,20 +313,20 @@ export default function Home() {
     return recentAttendance.slice(0, visitorLimit).map((entry, i) => (
       <div
         key={entry.id}
-        className={`flex items-start gap-3 ${isGuestListVisible ? "py-3.5" : "py-2.5"} ${i < Math.min(recentAttendance.length, visitorLimit) - 1 ? "border-b border-slate-100" : ""}`}
+        className={`flex items-start gap-3 ${isGuestListVisible ? "py-3.5" : "py-1.5"} ${i < Math.min(recentAttendance.length, visitorLimit) - 1 ? "border-b border-slate-100" : ""}`}
       >
-        <span className={`font-bold italic tracking-tight text-slate-300 w-5 pt-0.5 ${isGuestListVisible ? "text-[1rem]" : "text-[0.95rem]"}`}>
+        <span className={`font-bold italic tracking-tight text-slate-300 w-5 pt-0.5 ${isGuestListVisible ? "text-[1rem]" : "text-[0.9rem]"}`}>
           {i + 1}.
         </span>
         <div className="flex-1 min-w-0 pr-4">
-          <p className={`font-bold text-[#172B4D] leading-tight truncate tracking-tight ${isGuestListVisible ? "text-[1.02rem]" : "text-[0.95rem]"}`}>
+          <p className={`font-bold text-[#172B4D] leading-tight truncate tracking-tight ${isGuestListVisible ? "text-[1.02rem]" : "text-[0.9rem]"}`}>
             {entry.name}
           </p>
-          <p className={`text-[#6B778C] font-medium leading-relaxed mt-1 ${isGuestListVisible ? "text-[0.82rem] line-clamp-2" : "text-[0.8rem] line-clamp-1"}`}>
+          <p className={`text-[#6B778C] font-medium leading-relaxed mt-0.5 ${isGuestListVisible ? "text-[0.82rem] line-clamp-2" : "text-[0.76rem] line-clamp-1"}`}>
             {formatAttendanceUnitLabel(entry)}
           </p>
         </div>
-        <span className={`font-semibold text-slate-400 whitespace-nowrap pt-1 ${isGuestListVisible ? "text-[0.64rem]" : "text-[0.62rem]"}`}>
+        <span className={`font-semibold text-slate-400 whitespace-nowrap pt-1 ${isGuestListVisible ? "text-[0.64rem]" : "text-[0.58rem]"}`}>
           {formatTimeAgo(entry.createdAt)}
         </span>
       </div>
@@ -641,8 +641,8 @@ export default function Home() {
               <div className="absolute inset-0 bg-gradient-to-br from-white via-white to-[#F7FBFD] pointer-events-none" />
               <div className="absolute -right-24 -top-28 w-72 h-72 bg-gradient-to-bl from-[#009FA9]/10 to-transparent rounded-full blur-3xl pointer-events-none" />
 
-              <div className="relative z-[1] h-full flex flex-col p-2.5">
-                <div className="flex items-center justify-between gap-3">
+              <div className="relative z-[1] h-full flex flex-col">
+                <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-[#f0fcfc] text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[#009FA9] border border-[#009FA9]/20">
                     Informasi Kunjungan
                   </span>
@@ -651,26 +651,21 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-[#e7eef6] bg-white/80 px-4 py-3">
+                <div className="mt-3.5 rounded-2xl border border-[#e7eef6] bg-white/80 px-4 py-2.5">
                   <p className="text-[0.74rem] font-semibold uppercase tracking-[0.12em] text-[#6B778C]">
                     Kehadiran Rapat Hari Ini
                   </p>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <h3 className={`font-black tracking-[-0.04em] text-[#172B4D] leading-none ${isGuestListVisible ? "text-[clamp(2.5rem,4vw,3.6rem)]" : "text-[clamp(3.5rem,6vw,5.1rem)]"}`}>
+                  <div className="mt-1 flex items-end justify-between gap-3">
+                    <h3 className={`font-black tracking-[-0.04em] text-[#172B4D] leading-none ${isGuestListVisible ? "text-[clamp(2.5rem,4vw,3.6rem)]" : "text-[clamp(3rem,5.5vw,4.2rem)]"}`}>
                       {todayAttendanceCount.toLocaleString("id-ID")}
                     </h3>
-                    <span className="text-[0.85rem] font-semibold text-slate-400 pb-1">
+                    <span className="text-[0.85rem] font-semibold text-slate-400 pb-0.5">
                       hadir
                     </span>
                   </div>
-                  <div className="mt-3 grid grid-cols-1 gap-2 text-[0.72rem] font-semibold text-slate-500">
-                    <div className="rounded-xl bg-slate-50 px-3 py-2">
-                      Target Undangan: <span className="text-[#172B4D]">{getExpectedParticipantsCount(activeEventSource)} orang</span>
-                    </div>
-                  </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="mt-2.5 flex items-center justify-between gap-2">
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.74rem] font-bold ${trendInfo.isUp ? "bg-[#e7f6ee] text-[#1f7a46]" : "bg-[#fdecea] text-[#c5221f]"}`}>
                     {trendInfo.isUp ? (
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
@@ -681,7 +676,7 @@ export default function Home() {
                   </span>
                 </div>
 
-                <div className="mt-auto grid grid-cols-5 items-end gap-1.5 h-12">
+                <div className="mt-auto grid grid-cols-5 items-end gap-1.5 h-9">
                   {attendanceBars.map((bar, index) => (
                     <div
                       key={`bar-${index}`}
@@ -708,8 +703,8 @@ export default function Home() {
               onKeyDown={(event) => handleGuestCardKeyDown(event, "recent")}
               className={`bento-card cursor-pointer transition-all duration-300 group ${isGuestListVisible ? "col-span-1 col-start-4 row-start-2" : "col-start-4 row-start-1"} ${isGuestListVisible && activeGuestListTrigger === "recent" ? "ring-2 ring-[#009FA9]/40 border-[#009FA9]/40" : "hover:shadow-2xl hover:shadow-[#991b1b]/10"}`}
             >
-              <div className="relative z-[1] h-full flex flex-col pt-1">
-                <div className="mb-4 flex items-center justify-between gap-2">
+              <div className="relative z-[1] h-full flex flex-col">
+                <div className="mb-2.5 flex items-center justify-between gap-2">
                   <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-red-50 text-[0.66rem] font-extrabold uppercase tracking-[0.15em] text-[#991b1b] border border-red-100/50 shadow-sm">
                     Pengunjung Terbaru
                   </span>

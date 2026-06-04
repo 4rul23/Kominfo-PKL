@@ -1403,3 +1403,30 @@ body.wizard-active .bento-card * {
     transition: none !important;
   }
 }
+
+/* Height-based media query overrides for kiosks or smaller screens to prevent card overflow */
+@media (max-height: 850px) {
+  .bento-card {
+    padding: 14px !important;
+  }
+  .bento-grid {
+    gap: 8px !important;
+  }
+  #app {
+    padding: 16px 20px !important;
+  }
+}
+
+@media (max-height: 720px) {
+  .bento-card {
+    padding: 10px 12px !important;
+    border-radius: 16px !important;
+  }
+  .bento-grid {
+    gap: 6px !important;
+  }
+  #app {
+    padding: 10px 16px !important;
+  }
+}
+
