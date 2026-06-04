@@ -13,8 +13,11 @@ import {
   type AttendanceEvent,
   type AttendanceEntry,
 } from "@/lib/attendanceStore";
-import { ATTENDANCE_SOURCE, LONTARA_MEETING_PARTICIPANTS } from "@/lib/meetingParticipants";
-import { fetchVisitorsFromServer, type Visitor } from "@/lib/visitorStore";
+import {
+  ATTENDANCE_SOURCE,
+  getParticipantsForEvent,
+  getExpectedParticipantsCount,
+} from "@/lib/meetingParticipants";
 
 function formatTimeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -43,18 +46,7 @@ function formatAttendanceUnitLabel(entry: AttendanceEntry): string {
   return entry.participantLabel || entry.jabatan;
 }
 
-function toVisitorTimestamp(visitor: Visitor): string {
-  const [hours = "00", minutes = "00"] = visitor.timestamp.replace(".", ":").split(":");
-  const iso = `${visitor.date}T${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}:00`;
-  return Number.isNaN(new Date(iso).getTime()) ? new Date().toISOString() : new Date(iso).toISOString();
-}
-
-function formatVisitorUnitLabel(visitor: Visitor): string {
-  if (visitor.jabatan && visitor.jabatan !== "-") {
-    return `${visitor.jabatan} • ${visitor.unit || visitor.organization}`;
-  }
-  return visitor.unit || visitor.organization;
-}
+// Removed unused visitor utility functions
 
 const CLOCK_OPTIONS: Intl.DateTimeFormatOptions = {
   weekday: "long",
@@ -101,7 +93,6 @@ function areEntriesEquivalent(current: AttendanceEntry[], next: AttendanceEntry[
 export default function Home() {
   const [recentAttendance, setRecentAttendance] = useState<AttendanceEntry[]>([]);
   const [todayAttendanceCount, setTodayAttendanceCount] = useState(0);
-  const [recentVisitors, setRecentVisitors] = useState<Visitor[]>([]);
   const [isGuestListVisible, setIsGuestListVisible] = useState(false);
   const [activeGuestListTrigger, setActiveGuestListTrigger] = useState<GuestListTrigger | null>(null);
   const [guestListSearch, setGuestListSearch] = useState("");
@@ -120,7 +111,7 @@ export default function Home() {
   const attendancePath = selectedEventCode
     ? `/e/${encodeURIComponent(selectedEventCode)}/register`
     : "/attendance";
-  const totalVisitCount = recentVisitors.length + todayAttendanceCount;
+  const totalVisitCount = todayAttendanceCount;
   const isLoadingAttendanceRef = useRef(false);
   const isStreamConnectedRef = useRef(false);
   const streamSourceRef = useRef("");
@@ -267,22 +258,7 @@ export default function Home() {
     };
   }, [activeEventSource]);
 
-  useEffect(() => {
-    const loadVisitors = async () => {
-      try {
-        const visitors = await fetchVisitorsFromServer();
-        setRecentVisitors(visitors);
-      } catch {
-        setRecentVisitors([]);
-      }
-    };
-
-    void loadVisitors();
-    const interval = setInterval(() => {
-      void loadVisitors();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // Removed local visitors loading effect
 
   const trendInfo = useMemo(() => {
     const now = new Date();
@@ -326,78 +302,80 @@ export default function Home() {
 
   const visitorLimit = 3;
   const visitorList = useMemo(() => {
-    if (recentVisitors.length === 0) {
+    if (recentAttendance.length === 0) {
       return (
         <div className="py-4 text-sm text-slate-400">
-          Belum ada data pengunjung terbaru.
+          Belum ada data kehadiran terbaru.
         </div>
       );
     }
 
-    return recentVisitors.slice(0, visitorLimit).map((visitor, i) => (
+    return recentAttendance.slice(0, visitorLimit).map((entry, i) => (
       <div
-        key={visitor.id}
-        className={`flex items-start gap-3 ${isGuestListVisible ? "py-3.5" : "py-2.5"} ${i < Math.min(recentVisitors.length, visitorLimit) - 1 ? "border-b border-slate-100" : ""}`}
+        key={entry.id}
+        className={`flex items-start gap-3 ${isGuestListVisible ? "py-3.5" : "py-2.5"} ${i < Math.min(recentAttendance.length, visitorLimit) - 1 ? "border-b border-slate-100" : ""}`}
       >
         <span className={`font-bold italic tracking-tight text-slate-300 w-5 pt-0.5 ${isGuestListVisible ? "text-[1rem]" : "text-[0.95rem]"}`}>
           {i + 1}.
         </span>
         <div className="flex-1 min-w-0 pr-4">
           <p className={`font-bold text-[#172B4D] leading-tight truncate tracking-tight ${isGuestListVisible ? "text-[1.02rem]" : "text-[0.95rem]"}`}>
-            {visitor.name}
+            {entry.name}
           </p>
           <p className={`text-[#6B778C] font-medium leading-relaxed mt-1 ${isGuestListVisible ? "text-[0.82rem] line-clamp-2" : "text-[0.8rem] line-clamp-1"}`}>
-            {formatVisitorUnitLabel(visitor)}
+            {formatAttendanceUnitLabel(entry)}
           </p>
         </div>
         <span className={`font-semibold text-slate-400 whitespace-nowrap pt-1 ${isGuestListVisible ? "text-[0.64rem]" : "text-[0.62rem]"}`}>
-          {formatTimeAgo(toVisitorTimestamp(visitor))}
+          {formatTimeAgo(entry.createdAt)}
         </span>
       </div>
     ));
-  }, [recentVisitors, visitorLimit, isGuestListVisible]);
+  }, [recentAttendance, visitorLimit, isGuestListVisible]);
 
   const unitCountMap = useMemo(() => {
     const countMap = new Map<string, number>();
-    for (const visitor of recentVisitors) {
-      const key = visitor.unit || visitor.organization || "Lainnya";
+    for (const entry of recentAttendance) {
+      const key = entry.participantId;
       const current = countMap.get(key) ?? 0;
       countMap.set(key, current + 1);
     }
     return countMap;
-  }, [recentVisitors]);
+  }, [recentAttendance]);
 
   const participantFilterOptions = useMemo(() => {
-    return Array.from(unitCountMap.entries()).map(([id, count]) => ({ id, label: id, count }));
-  }, [unitCountMap]);
+    const participantsList = getParticipantsForEvent(activeEventSource);
+    return participantsList.map((p) => {
+      const count = unitCountMap.get(p.id) ?? 0;
+      return { id: p.id, label: p.label, count };
+    });
+  }, [unitCountMap, activeEventSource]);
 
   const roleFilterOptions = useMemo(() => {
     const roleSet = new Set<string>();
-    for (const visitor of recentVisitors) {
-      if (visitor.jabatan && visitor.jabatan !== "-") {
-        roleSet.add(visitor.jabatan);
+    for (const entry of recentAttendance) {
+      if (entry.participantRole && entry.participantRole !== "-") {
+        roleSet.add(entry.participantRole);
       }
     }
     return Array.from(roleSet).sort((a, b) => a.localeCompare(b, "id-ID"));
-  }, [recentVisitors]);
+  }, [recentAttendance]);
 
   const filteredGuestAttendance = useMemo(() => {
     const query = guestListSearch.trim().toLowerCase();
-    return recentVisitors.filter((entry) => {
+    return recentAttendance.filter((entry) => {
       const byParticipant =
-        guestListParticipantFilter === "ALL"
-        || (entry.unit || entry.organization || "Lainnya") === guestListParticipantFilter;
+        guestListParticipantFilter === "ALL" || entry.participantId === guestListParticipantFilter;
       const byRole =
-        guestListRoleFilter === "ALL"
-        || entry.jabatan === guestListRoleFilter;
+        guestListRoleFilter === "ALL" || entry.participantRole === guestListRoleFilter;
       if (!byParticipant || !byRole) return false;
 
       if (!query) return true;
-      const searchTargets = `${entry.name} ${entry.jabatan} ${entry.unit} ${entry.organization} ${entry.purpose}`
+      const searchTargets = `${entry.name} ${entry.jabatan} ${entry.participantRole}`
         .toLowerCase();
       return searchTargets.includes(query);
     });
-  }, [recentVisitors, guestListSearch, guestListParticipantFilter, guestListRoleFilter]);
+  }, [recentAttendance, guestListSearch, guestListParticipantFilter, guestListRoleFilter]);
 
   const closeGuestList = () => {
     if (transitionState.isVisible) return;
@@ -675,22 +653,19 @@ export default function Home() {
 
                 <div className="mt-5 rounded-2xl border border-[#e7eef6] bg-white/80 px-4 py-3">
                   <p className="text-[0.74rem] font-semibold uppercase tracking-[0.12em] text-[#6B778C]">
-                    Total Kunjungan & Kehadiran
+                    Kehadiran Rapat Hari Ini
                   </p>
                   <div className="mt-2 flex items-end justify-between gap-3">
                     <h3 className={`font-black tracking-[-0.04em] text-[#172B4D] leading-none ${isGuestListVisible ? "text-[clamp(2.5rem,4vw,3.6rem)]" : "text-[clamp(3.5rem,6vw,5.1rem)]"}`}>
-                      {totalVisitCount.toLocaleString("id-ID")}
+                      {todayAttendanceCount.toLocaleString("id-ID")}
                     </h3>
                     <span className="text-[0.85rem] font-semibold text-slate-400 pb-1">
-                      orang
+                      hadir
                     </span>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-[0.72rem] font-semibold text-slate-500">
+                  <div className="mt-3 grid grid-cols-1 gap-2 text-[0.72rem] font-semibold text-slate-500">
                     <div className="rounded-xl bg-slate-50 px-3 py-2">
-                      Tamu: <span className="text-[#172B4D]">{recentVisitors.length}</span>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 px-3 py-2">
-                      Event: <span className="text-[#172B4D]">{todayAttendanceCount}</span>
+                      Target Undangan: <span className="text-[#172B4D]">{getExpectedParticipantsCount(activeEventSource)} orang</span>
                     </div>
                   </div>
                 </div>
@@ -764,10 +739,10 @@ export default function Home() {
                     <div className="relative z-10 w-full flex items-center justify-between">
                       <div className="flex-1">
                         <h3 className="text-[2rem] font-black tracking-tight text-[#172B4D] leading-none mb-1.5">
-                          Semua Tamu yang Sudah Hadir
+                          Semua Peserta yang Sudah Hadir
                         </h3>
                         <p className="text-[1rem] text-[#6B778C] font-semibold">
-                          Menampilkan <span className="text-[#0f766e] font-bold">{filteredGuestAttendance.length.toLocaleString("id-ID")} tamu</span> dari total {recentVisitors.length.toLocaleString("id-ID")} data buku tamu.
+                          Menampilkan <span className="text-[#0f766e] font-bold">{filteredGuestAttendance.length.toLocaleString("id-ID")} peserta</span> dari total {recentAttendance.length.toLocaleString("id-ID")} data absensi hari ini.
                         </p>
                       </div>
                       <button
@@ -834,9 +809,9 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {filteredGuestAttendance.map((visitor, index) => (
+                        {filteredGuestAttendance.map((entry, index) => (
                           <div
-                            key={visitor.id}
+                            key={entry.id}
                             className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-start gap-3 rounded-2xl border border-slate-100 bg-white/95 px-4 py-3.5 shadow-[0_8px_18px_-16px_rgba(15,23,42,0.45)]"
                           >
                             <div className="w-10 h-10 rounded-2xl bg-[#F8FAFC] border border-slate-200 text-[#64748B] font-bold text-sm inline-flex items-center justify-center">
@@ -844,18 +819,18 @@ export default function Home() {
                             </div>
                             <div className="min-w-0">
                               <p className="text-[1.03rem] font-bold tracking-tight text-[#172B4D] truncate">
-                                {visitor.name}
+                                {entry.name}
                               </p>
                               <p className="text-[0.85rem] text-[#6B778C] leading-relaxed mt-1 line-clamp-2">
-                                {formatVisitorUnitLabel(visitor)}
+                                {formatAttendanceUnitLabel(entry)}
                               </p>
                             </div>
                             <div className="text-right pl-2">
                               <p className="text-[0.72rem] font-semibold text-slate-500">
-                                {formatDateTime(toVisitorTimestamp(visitor))}
+                                {formatDateTime(entry.createdAt)}
                               </p>
                               <p className="text-[0.72rem] font-semibold text-slate-300 mt-1">
-                                {formatTimeAgo(toVisitorTimestamp(visitor))}
+                                {formatTimeAgo(entry.createdAt)}
                               </p>
                             </div>
                           </div>
