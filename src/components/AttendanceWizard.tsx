@@ -85,6 +85,7 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
     const [activeEvent, setActiveEvent] = useState<AttendanceEvent | null>(null);
     const [events, setEvents] = useState<AttendanceEvent[]>([]);
     const [selectedEventCode, setSelectedEventCode] = useState("");
+    const [isInitialized, setIsInitialized] = useState(false);
     const [data, setData] = useState<WizardData>({
         name: "",
         phoneNumber: "",
@@ -147,9 +148,16 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
 
     const isRoleRequired = selectedRoleOptions.length > 0;
     // activeEventSource is already defined above
-    const activeEventName = selectedEvent?.name || activeEvent?.name || "Koordinasi Lontara+";
+    const activeEventName = isInitialized
+        ? (selectedEvent?.name || activeEvent?.name || "Koordinasi Lontara+")
+        : "Memuat Event...";
     const selectedRoleStatus = selectedRoleStatuses.find((role) => role.role === data.participantRole);
-    const attendanceWindow = useMemo(() => getAttendanceWindowLabel(selectedEvent?.eventDate || activeEvent?.eventDate || null), [selectedEvent?.eventDate, activeEvent?.eventDate]);
+    const attendanceWindow = useMemo(() => {
+        if (!isInitialized) {
+            return { isClosed: false, label: "Memuat jadwal absensi..." };
+        }
+        return getAttendanceWindowLabel(selectedEvent?.eventDate || activeEvent?.eventDate || null);
+    }, [selectedEvent?.eventDate, activeEvent?.eventDate, isInitialized]);
     const isRoleValid = !isRoleRequired || Boolean(selectedRoleStatus && !selectedRoleStatus.isFull);
     const isNameValid = nameValidation.isValid;
     const isParticipantValid =
@@ -221,6 +229,10 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
                 setActiveEvent(null);
                 setEvents([]);
                 setSelectedEventCode(ATTENDANCE_SOURCE);
+            } finally {
+                if (!cancelled) {
+                    setIsInitialized(true);
+                }
             }
         }
         loadEventsAndActiveEvent();
@@ -435,6 +447,19 @@ export default function AttendanceWizard({ onClose, preferredEventCode = "" }: A
                 <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-[#991b1b]/5 rounded-full blur-[100px]" />
                 <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-[#009FA9]/10 rounded-full blur-[100px]" />
             </div>
+
+            {!isInitialized && (
+                <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-white/95">
+                    <div className="flex flex-col items-center">
+                        <div className="relative w-20 h-20 mb-6 flex items-center justify-center">
+                            <div className="absolute inset-0 rounded-3xl border-2 border-dashed border-[#009FA9]/50 animate-spin" style={{ animationDuration: "6s" }} />
+                            <div className="absolute inset-2 rounded-2xl bg-gradient-to-tr from-[#009FA9]/10 to-[#991b1b]/10 animate-pulse" />
+                            <Image src="/kominfos.svg" alt="Kominfo Logo" width={36} height={36} className="relative z-10 opacity-70" />
+                        </div>
+                        <p className="text-sm font-bold tracking-wider text-[#172B4D] animate-pulse">Menyiapkan Absensi...</p>
+                    </div>
+                </div>
+            )}
 
             {!isSuccessStep && (
                 <div className="absolute top-0 left-0 w-full p-8 flex justify-between items-center z-20">
